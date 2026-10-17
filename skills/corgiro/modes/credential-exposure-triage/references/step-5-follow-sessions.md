@@ -31,7 +31,7 @@ Tag these pages `search: "username"`, `lookup_attribute: "Username"` (file `<reg
 ## Caps and gates
 - Each depth increment is one new expansion gate appended to `target-plan.json.expansions[]` with the batch of values, the field they came from, and the regex matched.
 - `max_sessions` bounds total distinct hop sessions; `max_derived_subjects` bounds queued keys; `max_hops` bounds chain depth. A cap hit is recorded, not silently dropped.
-- **Budget (both counters, pre-call; Step 5 charges only its own calls).** The **instance-session lookup** issued directly by Step 5 decrements both `call_budget` (its account) and `global_call_budget` before the call. A queued hop/derived-subject timeline is **not** charged here — it is charged **once, by Step 4** when Step 4 runs it (no double-counting). Stop the account at its per-account cap (`partial — call budget exhausted`) and the whole run before a call that would exceed `global_call_budget` (`partial — global call budget exhausted`, recorded in `completeness.json`).
+- **Budget — Step 5 charges only its own calls.** **Charge** both counters before the Step-5 instance-session lookup ([`state-contract.md`](state-contract.md) → Named procedures). A queued hop/derived-subject timeline is charged **once, by Step 4** when Step 4 runs it — Step 5 never also charges it.
 
 **Dual Access Mode:** all calls are `cloudtrail:LookupEvents`, available on every path.
 

@@ -2,9 +2,29 @@
 
 Exact JSON shapes for every file the mode writes under the Run Directory. Each step file links here instead of restating a schema; the report (Step 7) reads these files, not live API responses.
 
-**Masking is mandatory in every file here.** No field in any schema below ever holds a full access key ID. Every `accessKeyId` is stored as a `{masked, sha256}` object — `{"masked": "AKIA****XXXX", "sha256": "<64-hex>"}` — populated in memory before the first write (see MODE.md Safety). A subject is keyed by its `sha256` fingerprint (the `<subject-fingerprint>` in paths), never by the raw key.
+**Masking is mandatory in every file here.** No field in any schema below ever holds a full access key ID. Every `accessKeyId` is stored as a `{masked, sha256}` object — `{"masked": "AKIA****XXXX", "sha256": "<64-hex>"}` — populated in memory before the first write by **sanitize-write** (below). A subject is keyed by its `sha256` fingerprint (the `<subject-fingerprint>` in paths), never by the raw key.
 
 > The **Roster Entry** schema (`name`, `role`, `via`, `readOnlyEnforced`, `profile`, `reachable`, …) is owned by [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative). This contract references a Roster Entry by its account ID and never restates its shape.
+
+## Named procedures (single source of truth)
+
+Two procedures recur across the steps. They are defined once here; every step says "apply **sanitize-write**" or "**charge** both counters" and links back, rather than respelling them.
+
+### sanitize-write
+
+How any object becomes a file. The only key forms ever persisted or displayed are the SHA-256 fingerprint and the masked `AKIA****XXXX` (first 4 + last 4).
+
+1. **Populate the in-memory key map first.** While parsing each **successful** STS (`AssumeRole`/`GetFederationToken`/`GetSessionToken`) or `CreateAccessKey` response, validate the raw returned ID (`re.fullmatch` body `ASIA[0-9A-Z]{16}` or `AKIA[0-9A-Z]{16}`) and insert it into the process-local map keyed by its `sha256` — before the value is masked. Step 5 then receives each hop/derived key by fingerprint, reading the raw value from this map, never from a persisted file.
+2. **Walk the parsed value tree** (not the serialized text): a field whose entire value is an access key ID becomes `{masked, sha256}`; an access key ID appearing as a **substring** of a larger string (`roleSessionName`, an ARN, `errorMessage`) becomes the masked string `AKIA****XXXX` in place, its fingerprint recorded separately.
+3. **Drop the secret-bearing keys.** Drop the exact JSON keys `sessionToken` and `secretAccessKey` (CloudTrail responses, case-sensitive — this leaves `GetSessionToken` the event name untouched) and `Credentials`/`SecretAccessKey`/`SessionToken` (PascalCase CLI-import output). For an `ssm.amazonaws.com / SendCommand` event, keep only `requestParameters.documentName`, `requestParameters.instanceIds`, and `responseElements.command.commandId`, and drop `requestParameters.parameters` (AWS warns plaintext Systems Manager parameters are logged to CloudTrail and readable by anyone with log access — [Run Command](https://docs.aws.amazon.com/systems-manager/latest/userguide/running-commands.html)).
+4. **Serialize, then scan the bytes** for `(AKIA|ASIA)[0-9A-Z]{16}`, and **write atomically only when that pre-write scan is clean**. A field that still carries `sessionToken`/`secretAccessKey`/`Credentials`/`SecretAccessKey`/`SessionToken` by exact name fails the write closed.
+5. **Post-write scan (backstop).** Scan the written file once more for the same regex, ignoring the single authored doc example `AKIAIOSFODNN7EXAMPLE`; on a hit, delete the file and stop the run with an error. The pre-write scan is the guarantee; this catches a defect in it.
+
+A **full guardrail** sits under this procedure: a full access key ID is persisted or displayed only as `{masked, sha256}` / `AKIA****XXXX`, never raw.
+
+### charge
+
+How every AWS call is budgeted. **Before each AWS request** — including the pre-gate resolution calls — decrement `global_call_budget` (run-wide) and the `call_budget` of the **account whose session issues the call**: the operator base account for `get-caller-identity` and `sts get-access-key-info` (which run from an arbitrary granting or the operator base session), the owning account for every owning-account read. One argv is one request; one manual `NextToken`/`Marker` page is one request. Issue the call only when both counters stay within budget: at the per-account cap stop that account and mark it `partial — call budget exhausted`; at the global cap stop the whole run, mark every not-yet-finished account `partial — global call budget exhausted`, and record `caps_hit: ["global_call_budget"]` in `completeness.json`. A hop or derived-subject sweep queued by Step 5 is charged **once, by Step 4** when Step 4 runs it — Step 5 never also charges it.
 
 ## `subjects.json` (Step 1a)
 

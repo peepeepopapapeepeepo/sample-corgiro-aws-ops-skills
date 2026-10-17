@@ -51,6 +51,6 @@ Collect the IAM credential report once per in-scope account (`aws iam generate-c
 ## ViewOnlyAccess degradation (Path A)
 `ViewOnlyAccess` grants neither GuardDuty nor Health reads (MODE.md Prerequisites); when the permission set is `ViewOnlyAccess`, skip this step, record `signals_unavailable` in `completeness.json`, and continue to Step 4. This is documented degradation, not an error.
 
-**Hard stops:** all calls `--no-paginate` with manual `NextToken`. **Budget (both counters, pre-call):** every GuardDuty/Health/credential-report request decrements both `call_budget` (its account) and `global_call_budget` before the call; stop the account at the per-account cap (`partial — call budget exhausted`) and the whole run before a call that would exceed `global_call_budget` (`partial — global call budget exhausted`, recorded in `completeness.json`). Nothing runs outside `target-plan.json`.
+**Hard stops:** all calls `--no-paginate` with manual `NextToken`. **Charge** both counters before each GuardDuty / Health / credential-report request ([`state-contract.md`](state-contract.md) → Named procedures). Nothing runs outside `target-plan.json`.
 
 **Output:** `signals.json` per [`state-contract.md`](state-contract.md).
