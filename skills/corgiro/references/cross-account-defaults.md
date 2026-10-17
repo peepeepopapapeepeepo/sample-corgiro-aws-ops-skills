@@ -28,15 +28,21 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 
 ## Region discovery (`account list-regions`)
 
-When a mode needs the set of regions actually enabled for an account (rather than a static `defaultRegions` list), discover them once with the Account Management API:
+When a mode needs the set of regions actually enabled for an account (rather than a static `defaultRegions` list), discover them with the Account Management API. `ListRegions` is **paginated** (`MaxResults` 1-50, default unstated), so **loop on `NextToken`** rather than relying on `--no-paginate`, which can return a partial Region list:
 
 ```bash
-aws account list-regions \
-  --region-opt-status-contains ENABLED ENABLED_BY_DEFAULT \
-  --no-paginate
+NEXT=""
+while :; do
+  OUT="$(aws account list-regions \
+    --region-opt-status-contains ENABLED ENABLED_BY_DEFAULT \
+    --max-results 50 ${NEXT:+--next-token "$NEXT"})"
+  # accumulate OUT.Regions[] ...
+  NEXT="$(printf '%s' "$OUT" | jq -r '.NextToken // empty')"
+  [ -z "$NEXT" ] && break
+done
 ```
 
-`list-regions` returns every Region and its opt-in status; filtering on `ENABLED`/`ENABLED_BY_DEFAULT` yields the account's active footprint. Source: [ListRegions](https://docs.aws.amazon.com/accounts/latest/reference/API_ListRegions.html). With `--account-id` it can target a member account, but only from the organization's management or a delegated-administrator account ([get-region-opt-status / Account Management](https://docs.aws.amazon.com/cli/latest/reference/account/get-region-opt-status.html)).
+`list-regions` returns every Region and its opt-in status; filtering on `ENABLED`/`ENABLED_BY_DEFAULT` yields the account's active footprint. Source: [list-regions](https://docs.aws.amazon.com/cli/latest/reference/account/list-regions.html). With `--account-id` it can target a member account, but only from the organization's management or a delegated-administrator account ([list-regions](https://docs.aws.amazon.com/cli/latest/reference/account/list-regions.html)).
 
 **Access-mode caveat.** `account:ListRegions` is **not** granted by the `SecurityAudit` or `ViewOnlyAccess` managed policies ([SecurityAudit reference](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SecurityAudit.html)), so under `identity-center-direct` a mode cannot rely on it — fall back to `defaultRegions` / the mode's `expected_regions`. Under `cross-account-role` it is available where `CorgiroReadOnlyRole` (`ReadOnlyAccess`) permits it. A mode that uses `list-regions` (e.g. `credential-exposure-triage`) documents this fallback rather than failing.
 
