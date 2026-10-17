@@ -24,12 +24,14 @@ aws guardduty get-findings   --detector-id=<validated detector id> --region=<reg
 - **No type filter** — keep every finding type. GuardDuty `Severity` is reported verbatim as AWS data and is **never** mapped to Risk Tier (CONTEXT.md).
 - The key value is read from `$COMPROMISED_ACCESS_KEY_ID_N`; it is never written to `signals.json` (mask there) or to any log/debug file.
 
-**Discovery path (no key):** there is no `accessKeyId` to filter on, so apply a **server-side** `--finding-criteria` on `resource.resourceType` = `AccessKey` (a documented `FindingCriteria` field — [list-findings](https://docs.aws.amazon.com/cli/latest/reference/guardduty/list-findings.html)), which cuts the number of `get-findings` calls:
+**Discovery path (no key):** there is no `accessKeyId` to filter on, so run **two** server-side-filtered `list-findings` calls per detector — both documented `FindingCriteria` fields ([list-findings](https://docs.aws.amazon.com/cli/latest/reference/guardduty/list-findings.html) lists `resource.resourceType` among the valid criterion fields and its Example 2 filters on `type` with `Eq`) — which cuts the number of `get-findings` calls:
 ```
 RCRIT='{"Criterion":{"resource.resourceType":{"Eq":["AccessKey"]}}}'
 aws guardduty list-findings --detector-id=<validated detector id> --region=<region> --no-paginate --finding-criteria="$RCRIT"
+TCRIT='{"Criterion":{"type":{"Eq":["AttackSequence:IAM/CompromisedCredentials"]}}}'
+aws guardduty list-findings --detector-id=<validated detector id> --region=<region> --no-paginate --finding-criteria="$TCRIT"
 ```
-Then `get-findings` the returned ids. **`AttackSequence:IAM/CompromisedCredentials` is not filtered by `resourceType`** (the attack-sequence finding does not document an `AccessKey` resource type, so a `resourceType == "AccessKey"` filter may drop it): additionally keep any finding **by type name** whose `type` begins `AttackSequence:IAM/` from an unfiltered pass, so the highest-severity type is never dropped. Do not invent any other server-side criterion.
+Then `get-findings` the union of the returned ids (deduplicated, ≤ 50 per call). The second call exists because **`AttackSequence:IAM/CompromisedCredentials` is not selected by `resourceType`** (the attack-sequence finding does not document an `AccessKey` resource type — [attack-sequence finding types](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty-attack-sequence-finding-types.html)), so a `resourceType == "AccessKey"` filter alone could drop the highest-severity type. Both calls are static argv (only the validated detector ID is substituted), are listed in `discovery-plan.json`, and count in the discovery gate's estimate as **2 `list-findings` per detector**. Do not invent any other server-side criterion.
 
 ### `identity-center-direct` (per account, direct)
 Per Roster Entry: `guardduty list-detectors --region=<region> --no-paginate` per region, then `list-findings`/`get-findings` as above (same ID validation) using the per-account SSO profile. GuardDuty across many accounts × regions is expensive here (≈ `accounts × regions × ~2-3` calls → 2,000+ over 50×20); require named accounts/regions or a separate high-cost approval recorded in the Step 2 gate.
