@@ -25,7 +25,21 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 
 > **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
 
-## Operator Config File (`~/.corgiro/config.json`)
+## Region discovery (`account list-regions`)
+
+When a mode needs the set of regions actually enabled for an account (rather than a static `defaultRegions` list), discover them once with the Account Management API:
+
+```bash
+aws account list-regions \
+  --region-opt-status-contains ENABLED ENABLED_BY_DEFAULT \
+  --no-paginate
+```
+
+`list-regions` returns every Region and its opt-in status; filtering on `ENABLED`/`ENABLED_BY_DEFAULT` yields the account's active footprint. Source: [ListRegions](https://docs.aws.amazon.com/accounts/latest/reference/API_ListRegions.html). With `--account-id` it can target a member account, but only from the organization's management or a delegated-administrator account ([get-region-opt-status / Account Management](https://docs.aws.amazon.com/cli/latest/reference/account/get-region-opt-status.html)).
+
+**Access-mode caveat.** `account:ListRegions` is **not** granted by the `SecurityAudit` or `ViewOnlyAccess` managed policies ([SecurityAudit reference](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SecurityAudit.html)), so under `identity-center-direct` a mode cannot rely on it — fall back to `defaultRegions` / the mode's `expected_regions`. Under `cross-account-role` it is available where `CorgiroReadOnlyRole` (`ReadOnlyAccess`) permits it. A mode that uses `list-regions` (e.g. `credential-exposure-triage`) documents this fallback rather than failing.
+
+
 
 Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained.
 

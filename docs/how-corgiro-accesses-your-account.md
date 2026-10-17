@@ -288,6 +288,7 @@ Option A additionally writes an `[sso-session]` block and one `[profile corgiro-
 - **Display credentials.** Access keys, secret keys, session tokens, SSO access tokens, and the external ID are never printed. Cache files are referenced by path, not by value.
 - **Persist member-account credentials.** In-memory only.
 - **Act on resource metadata.** Tags, names, and descriptions are reported, never executed.
+- **Run a human-handoff command for you.** The `credential-exposure-triage` mode may **print** read-only commands for a human to run — under their own authority — against logs, code, and objects the read-only role cannot read, and then import the results as untrusted data; it never runs those commands itself and never crosses the member-role read-only boundary.
 - **Guess lifecycle dates.** End-of-support analyses scrape current dates from AWS documentation and stop rather than answer from model memory.
 - **Select an SSO token cache file by modification time.** A laptop commonly holds tokens for several unrelated sessions; picking the newest can read a *different* session's expiry and report a healthy Corgiro session when Corgiro's own token has expired — a silent false pass on a security control. The cache file is derived from `sha1(sessionName)`, falling back to a `startUrl` match.
 

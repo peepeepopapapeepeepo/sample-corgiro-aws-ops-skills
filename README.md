@@ -66,6 +66,7 @@ Check which accounts are reachable:
 | [`/corgiro elasticache-eol-analysis`](skills/corgiro/modes/elasticache-eol-analysis/) | ElastiCache end-of-support analysis — Redis OSS engine version risk across node-based, replication-group, and serverless caches, upgrade targets, and Extended Support cost exposure (Valkey and Memcached reported as no-published-EOL). |
 | [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 operational health assessment — instance type currency, Graviton eligibility, EBS optimization, security, CloudWatch utilization, and snapshot coverage.                                                                        |
 | [`/corgiro iam-security-review`](skills/corgiro/modes/iam-security-review/)     | Org-wide IAM security review — overly permissive policies/roles, IAM users with admin-equivalent access (direct, inline, or via group), stale or unused access keys, MFA gaps, password policy, root-account risks, automation/CI users on long-lived keys with keyless-auth remediation, and Access Analyzer gaps.                       |
+| [`/corgiro credential-exposure-triage`](skills/corgiro/modes/credential-exposure-triage/) | Triage a potentially compromised credential across the org — from a leaked access key, GuardDuty IAM finding, Health credential-exposure event, or assumed-role session, reconstruct activity from CloudTrail/GuardDuty/Health/IAM (hops, attacker-created keys, resource lifecycle, locked-out principals, still-active-after-containment), and emit a read-only incident report plus printed (never executed) containment and human-handoff runbooks. |
 | [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |
 | [`/corgiro ri-sp-coverage-analysis`](skills/corgiro/modes/ri-sp-coverage-analysis/) | Reserved Instance and Savings Plans coverage analysis — spend decomposition, coverage, utilization, purchase recommendations, and expiring commitments across the org (payer-scoped).                                             |
 | [`/corgiro eks-ingress-migration`](skills/corgiro/modes/eks-ingress-migration/)     | Org-wide EKS ingress migration triage — discovers clusters across accounts/regions, detects EKS Auto Mode, and classifies each cluster's ingress exposure from AWS load balancer tags (NGINX front vs AWS Load Balancer Controller ALB vs Auto Mode managed) to prioritize migration off NGINX and point each at the right path (Gateway API + lbc-migrate toolkit, ALB/LBC Ingress, or AWS Transform/ATX).                       |
@@ -106,6 +107,7 @@ skills/
     ├── references/
     │   ├── cross-account-defaults.md     ← shared config defaults
     │   ├── credential-resolution.md      ← per-account credential dispatch
+    │   ├── sweep-plan-coverage.md        ← shared plan-gate / call-budget / coverage contract
     │   ├── aws-version-lifecycle.md      ← EOL date scraping reference
     │   └── report-format.md              ← shared report structure + theme
     ├── assets/
@@ -125,6 +127,9 @@ skills/
         │   ├── MODE.md
         │   └── references/
         │       └── ...
+        ├── credential-exposure-triage/
+        │   ├── MODE.md
+        │   └── references/            ← state-contract, step-0…step-7, event-catalog
         ├── bedrock-model-lifecycle/
         │   └── MODE.md
         ├── eks-ingress-migration/
