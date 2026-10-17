@@ -28,7 +28,7 @@ Every identifier regex in this mode is written as an **unanchored body for Pytho
 
 ### charge
 
-How every AWS call is budgeted. **Before each AWS request** — including the pre-gate resolution calls — decrement `global_call_budget` (run-wide) and the `call_budget` of the **account whose session issues the call**: the operator base account for `get-caller-identity` and `sts get-access-key-info` (which run from an arbitrary granting or the operator base session), the owning account for every owning-account read. One argv is one request; one manual `NextToken`/`Marker` page is one request. Issue the call only when both counters stay within budget: at the per-account cap stop that account and mark it `partial — call budget exhausted`; at the global cap stop the whole run, mark every not-yet-finished account `partial — global call budget exhausted`, and record `caps_hit: ["global_call_budget"]` in `completeness.json`. A hop or derived-subject sweep queued by Step 5 is charged **once, by Step 4** when Step 4 runs it — Step 5 never also charges it.
+How every AWS call is budgeted. **Before each AWS request** — including the pre-gate resolution calls — decrement `global_call_budget` (run-wide) and the `call_budget` of the **account whose session issues the call**: the operator base account for `get-caller-identity` and `sts get-access-key-info` (which run from an arbitrary granting or the operator base session), the owning account for every owning-account read. One argv is one request; one manual `NextToken`/`Marker` page is one request. **Each charge also increments `completeness.coverage.call_counts.by_operation["<service>:<Operation>"]`** (e.g. `cloudtrail:LookupEvents`, `iam:GetInstanceProfile`) so the ledger records exactly which APIs were issued — Step 7 Methodology lists APIs from this map and nowhere else. Issue the call only when both counters stay within budget: at the per-account cap stop that account and mark it `partial — call budget exhausted`; at the global cap stop the whole run, mark every not-yet-finished account `partial — global call budget exhausted`, and record `caps_hit: ["global_call_budget"]` in `completeness.json`. A hop or derived-subject sweep queued by Step 5 is charged **once, by Step 4** when Step 4 runs it — Step 5 never also charges it.
 
 ## `subjects.json` (Step 1a)
 
@@ -161,7 +161,7 @@ Nothing outside the already-approved `accounts` / `regions_by_account` is ever a
 
 ## `timeline/<subject-fingerprint>/<region>[-rn|-un]-pN.json` (Step 4)
 
-One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the **role** of the search that produced the page, not the attribute: none for the subject's **primary** lookup (`AccessKeyId` for key subjects; the two `Username` attempts — `<session name>` then `<role name>` fallback — for a role-session subject, both filtered client-side on the role), `-rn` for the supplemental `ResourceName` search, `-un` for the supplemental `Username=<instance id>` instance-session search (Step 5). `lookup_attribute` records the attribute actually sent.
+One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the **role** of the search that produced the page, not the attribute: none for a key subject's **primary** `AccessKeyId` lookup; for a **role-session** subject's two primary `Username` attempts, `-rsn-` (by session name) and `-rrn-` (by role name) — distinct infixes so the two independently-paginated streams never overwrite each other, both `search: "primary"`; `-rn` for the supplemental `ResourceName` search; `-un` for the supplemental `Username=<instance id>` instance-session search (Step 5). `lookup_attribute` records the attribute actually sent. Step 6 unions the `-rsn-`/`-rrn-` streams and deduplicates by `eventId`.
 
 ```json
 {
@@ -250,7 +250,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
       "event": { "eventSource": "iam.amazonaws.com", "eventName": "CreateAccessKey", "eventId": "<uuid>", "eventTime": "<iso8601>" },
       "outcome": "succeeded | attempted",
       "confidence": "confirmed | observed-attempt | inferred | not-observable | partial",
-      "lifecycle": { "resource_id": "<id>", "state": "created-still-live | created-then-deleted | unknown", "follow_up_event": "<eventName | null>" },
+      "lifecycle": { "resource_id": "<id>", "state": "created-still-live | created-then-deleted | unknown", "follow_up_event": "<eventName | null>", "instance_profile_role": "<RunInstances only: the role name from iam get-instance-profile InstanceProfile.Roles[].RoleName, or null>" },
       "containment_defeating": false,
       "notes": "<agent-authored>"
     }
@@ -322,7 +322,7 @@ The honest coverage record that feeds the report's Methodology and every coverag
     "caps_hit": ["max_hops", "call_budget:222222222222", "global_call_budget"],
     "data_event_blind_spots": ["s3:GetObject", "lambda:Invoke", "dynamodb item ops"],
     "signals_unavailable": ["guardduty (view-only permission set)"],
-    "call_counts": { "by_account": { "111111111111": 83 }, "total": 141, "global_budget": 2000 }
+    "call_counts": { "by_account": { "111111111111": 83 }, "by_operation": { "cloudtrail:LookupEvents": 61, "guardduty:GetFindings": 4, "iam:ListAccessKeys": 2, "ec2:DescribeInstances": 1, "iam:GetInstanceProfile": 1 }, "total": 141, "global_budget": 2000 }
   },
   "audit_records": [
     { "eventSource": "s3.amazonaws.com", "eventName": "PutBucketVersioning", "eventId": "<uuid>", "account": "111111111111", "note": "versioning Status=Enabled — benign config change, not a finding" }

@@ -34,12 +34,19 @@ When a mode needs the set of regions actually enabled for an account (rather tha
 NEXT=""; REGIONS=""
 while :; do
   # <decrement call_budget (this account) and global_call_budget here, before the request>
-  if ! OUT="$(aws account list-regions --no-paginate \
+  if ! OUT="$(aws account list-regions --no-paginate --output=json \
     --region-opt-status-contains ENABLED ENABLED_BY_DEFAULT \
     --max-results=50 ${NEXT:+--next-token="$NEXT"})"; then
     # request failed: do NOT use the partial REGIONS as complete
     mark_footprint_partial "$ACCOUNT" "list-regions request failed"   # records partial in completeness.json
     REGIONS="$DEFAULT_REGIONS"                                        # fall back to configured defaultRegions / expected_regions
+    break
+  fi
+  # fail closed on malformed / non-JSON output: require .Regions to be an array and .NextToken to be a string or null.
+  # jq -e exits non-zero on parse failure OR a false/null test, so text output or a missing .Regions trips this branch.
+  if ! printf '%s' "$OUT" | jq -e '(.Regions | type == "array") and ((.NextToken | type) as $t | $t == "string" or $t == "null")' >/dev/null 2>&1; then
+    mark_footprint_partial "$ACCOUNT" "list-regions returned unparseable or unexpected output"
+    REGIONS="$DEFAULT_REGIONS"
     break
   fi
   REGIONS="$REGIONS $(printf '%s' "$OUT" | jq -r '.Regions[].RegionName')"
