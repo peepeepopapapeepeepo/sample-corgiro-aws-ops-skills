@@ -23,16 +23,19 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
         "name": "<iam user or role name, or null until resolved>",
         "arn": "<principal arn, or null>"
       },
-      "resolved_via": "sts:GetAccessKeyInfo | iam:GetAccessKeyLastUsed | operator-supplied | guardduty:GetFindings | health:DescribeAffectedEntities",
-      "last_used": { "date": "<iso8601 | null>", "service": "<svc | null>", "region": "<region | null>" },
+      "resolved_via": ["<one or more of: sts:GetAccessKeyInfo, iam:GetAccessKeyLastUsed, operator-supplied, guardduty:GetFindings, health:DescribeAffectedEntities>"],
+      "last_used": { "date": "<iso8601 | null | 'not-observable'>", "service": "<svc | null>", "region": "<region | null>" },
       "quarantine_policy": "AWSCompromisedKeyQuarantineV2 | AWSCompromisedKeyQuarantineV3 | none | not-observable",
       "status": "resolved | unresolved | unresolved-account | account-outside-roster | degraded-view-only",
       "derived_from": "<parent subject fingerprint, or null if operator-supplied>",
+      "discovered_at_depth": "<0 for operator/finding/health subjects; the hop depth at which a derived subject was created>",
       "notes": "<free text, agent-authored, never attacker data>"
     }
   ]
 }
 ```
+
+**Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
 
 ## `target-plan.json` (Step 2, targeted path) / `discovery-plan.json` (Step 1b, discovery path)
 
@@ -63,7 +66,17 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
 }
 ```
 
-`expansions[]` is appended **only** by a Step 5 expansion gate, each element recording the batch of same-depth pivot values approved, the designated field they came from, the regex they matched, and the hop depth. Nothing outside `accounts` / `regions_by_account` is ever added.
+`expansions[]` is appended **only** by a Step 5 expansion gate. Each element has the shape:
+
+```json
+{ "depth": 1, "kind": "hop | derived-subject | instance-session",
+  "values": [ { "masked": "ASIA****XXXX", "sha256": "<64-hex>" } ],
+  "designated_field": "responseElements.credentials.accessKeyId",
+  "regex": "^ASIA[0-9A-Z]{16}$",
+  "accounts": ["222222222222"], "approved_at": "<iso8601>" }
+```
+
+Nothing outside the already-approved `accounts` / `regions_by_account` is ever added — an expansion adds only lookup **values**, never a new account, region, or command.
 
 ## `signals.json` (Step 3)
 
@@ -72,13 +85,16 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
   "per_account": {
     "111111111111": {
       "guardduty": {
-        "coverage": "detector-present | no-detector | not-permitted",
-        "findings": [
-          { "id": "<finding id>", "type": "<finding type string>", "severity": 8.0,
-            "resource_access_key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
-            "first_seen": "<iso8601>", "last_seen": "<iso8601>",
-            "actor_ip": "<ip | null>", "api": "<api | null>", "region": "us-east-1" }
-        ]
+        "by_region": {
+          "us-east-1": { "coverage": "detector-present | no-detector | not-permitted | not-associated",
+            "findings": [
+              { "id": "<finding id>", "type": "<finding type string>", "severity": 8.0,
+                "resource_type": "AccessKey",
+                "resource_access_key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+                "first_seen": "<iso8601>", "last_seen": "<iso8601>",
+                "actor_ip": "<ip | null>", "api": "<api | null>" } ] },
+          "ap-southeast-1": { "coverage": "no-detector", "findings": [] }
+        }
       },
       "health": {
         "coverage": "subscribed | subscription-required | not-permitted",
@@ -92,14 +108,15 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
 
 `severity` here is GuardDuty's own numeric Severity reported verbatim as AWS data — it is **never** mapped to Risk Tier (CONTEXT.md: "severity" is reserved for AWS Health). `health.eventTypeCode` is matched client-side against `CREDENTIALS` (Step 3); codes are discovered at run time, never hardcoded.
 
-## `timeline/<subject-fingerprint>/<region>-pN.json` (Step 4)
+## `timeline/<subject-fingerprint>/<region>[-rn|-un]-pN.json` (Step 4)
 
-One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call.
+One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the search that produced the page: none for the primary `AccessKeyId` lookup, `-rn` for the supplemental `ResourceName` search, `-un` for the `Username` instance search.
 
 ```json
 {
   "subject": "<fingerprint>",
   "region": "us-east-1",
+  "search": "primary | resourcename | username",
   "page": 1,
   "next_token_present": true,
   "events": [
@@ -112,18 +129,23 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
       "sourceIPAddress": "<ip | aws-service>",
       "userAgent": "<ua string, sanitized before report>",
       "errorCode": "<code | null>",
-      "errorMessage": "<msg | null, sanitized>",
+      "errorMessage": "<msg | null, sanitized, value-masked>",
       "readOnly": false,
       "userIdentity": { "type": "IAMUser | AssumedRole | Root | ...", "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "arn": "<arn>" },
-      "requestParameters": { "<sanitized subset>": "..." },
-      "responseElements": { "<sanitized subset; STS creds & CreateAccessKey only>": "..." },
+      "requestParameters": { "<sanitized subset, value-masked>": "..." },
+      "responseElements": {
+        "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken and CreateAccessKey",
+        "credentials": { "accessKeyId": { "masked": "ASIA****XXXX", "sha256": "<64-hex>" }, "expiration": "<iso8601>" },
+        "assumedRoleUser": { "arn": "<arn>" },
+        "accessKey": { "userName": "<name>", "status": "Active", "createDate": "<iso8601>" }
+      },
       "outcome": "succeeded | attempted"
     }
   ]
 }
 ```
 
-`responseElements` is retained only for STS (`AssumeRole`/`GetFederationToken`/`GetSessionToken`) and `CreateAccessKey`, and any `accessKeyId` inside it is masked like every other. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
+`responseElements` is kept only for STS and `CreateAccessKey`, and only the fields above — **`credentials.sessionToken` and `credentials.secretAccessKey` are dropped** and, if either appears in a page about to be written, the write fails closed (MODE.md Safety). Every `accessKeyId` and any key-shaped value anywhere in the page is value-masked `{masked, sha256}` before the first write, followed by the post-write fail-closed scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
 
 ## `sessions.json` (Step 5)
 

@@ -1,6 +1,6 @@
 # Step 5 — Follow Hops, Derived Subjects, and Instance Sessions
 
-Expand the subject graph **within caps, through a new expansion gate**. Every pivot value is regex-validated, taken from a designated response field, confined to accounts/regions already in `target-plan.json`, and batched: **one deduplicated expansion gate per hop depth; never gate or recurse one event at a time** (MODE.md Safety; ask line 79).
+Expand the subject graph **within caps, through a new expansion gate**. Every pivot value is regex-validated, taken from a designated response field, confined to accounts/regions already in `target-plan.json`, and batched: **one deduplicated expansion gate per hop depth; never gate or recurse one event at a time** (see MODE.md Safety and the identifier-passing pattern in [`ask/MODE.md`](../../ask/MODE.md)).
 
 **Inputs:** `timeline/*` pages (Step 4); `target-plan.json`; caps `max_hops` (2), `max_sessions` (20), `max_derived_subjects` (10).
 
@@ -18,12 +18,13 @@ From **successful** `CreateAccessKey`, take `responseElements.accessKey.accessKe
 `CreateUser` / `CreateLoginProfile` / `CreateRole` / `CreateInstanceProfile` feed `sessions.json.watchlist_principals` (validated IAM name `^[\w+=,.@-]{1,64}$`) for Step 6c lockout analysis.
 
 ## Instance-role session review
-When the subject touched instances — `SendCommand`, `SendSSHPublicKey`, `AssociateIamInstanceProfile` — run a supplemental, gated lookup for the **instance** (an instance-role session, not an STS hop), with the instance ID validated `^i-[0-9a-f]{8,17}$`:
+When the subject touched instances — `SendCommand`, `SendSSHPublicKey`, `AssociateIamInstanceProfile` — run a supplemental, gated lookup for the **instance** (an instance-role session, not an STS hop), with the instance ID validated `^i-[0-9a-f]{8,17}$` and passed via the JSON form of `--lookup-attributes` (never shorthand):
 ```
-aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=<validated instance-id> \
+aws cloudtrail lookup-events \
+  --lookup-attributes "$(printf '[{"AttributeKey":"Username","AttributeValue":"%s"}]' "$VALIDATED_INSTANCE_ID")" \
   --start-time <since> --end-time <until> --region <region> --no-paginate
 ```
-`Username`-attribute results are supplemental: zero results never prove no activity.
+Tag these pages `search: "username"` (file `<region>-un-pN.json`). `Username`-attribute results are supplemental: zero results never prove no activity, and they never count toward STILL ACTIVE.
 
 ## Caps and gates
 - Each depth increment is one new expansion gate appended to `target-plan.json.expansions[]` with the batch of values, the field they came from, and the regex matched.
