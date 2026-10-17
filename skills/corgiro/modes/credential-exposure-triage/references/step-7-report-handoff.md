@@ -65,7 +65,7 @@ Everything in "Not RO-feasible" becomes a handoff task written to `handoff.md` (
 
 ### Per-type substitution regexes (field-specific allowlist)
 
-Every regex below is a **`re.fullmatch` body** per the regex-dialect note in MODE.md (Python `re.fullmatch` applies no anchors; PCRE/Ruby/Java users wrap the body in `\A…\z`; never `^…$`, which can match up to an embedded newline), requires a **first character in `[A-Za-z0-9]`** (a value can never start with `-` and be read as an option), uses **ASCII classes** (`[A-Za-z0-9_]`, not `\w`), and excludes commas and newlines. Generated options use the `--opt=value` (equals-joined) form so a validated value is never parsed as a flag. ARNs are matched by resource-type-specific patterns, never a catch-all tail. IPv6 is validated with a standard IP parser (Python `ipaddress`), not a regex.
+Every regex below is a **`re.fullmatch` body** per the Regex dialect in [`state-contract.md`](state-contract.md) (no anchors; PCRE/Ruby/Java wrap in `\A…\z`; never `^…$`), requires a **first character in `[A-Za-z0-9]`** (a value can never start with `-` and be read as an option), uses **ASCII classes** (`[A-Za-z0-9_]`, not `\w`), and excludes commas and newlines. Generated options use the `--opt=value` (equals-joined) form so a validated value is never parsed as a flag. ARNs are matched by resource-type-specific patterns, never a catch-all tail. IPv6 is validated with a standard IP parser (Python `ipaddress`), not a regex.
 
 | Hole type | `re.fullmatch` body | Source field |
 |---|---|---|

@@ -22,6 +22,10 @@ How any object becomes a file. The only key forms ever persisted or displayed ar
 
 A **full guardrail** sits under this procedure: a full access key ID is persisted or displayed only as `{masked, sha256}` / `AKIA****XXXX`, never raw.
 
+### Regex dialect
+
+Every identifier regex in this mode is written as an **unanchored body for Python `re.fullmatch`** — e.g. `(AKIA|ASIA)[0-9A-Z]{16}` — which matches the whole string with no trailing-newline surprise. PCRE/Ruby/Java users wrap the same body in `\A…\z`; `^…$` is wrong (in those engines it can match up to an embedded newline). Character classes are **ASCII only**: `[A-Za-z0-9_]`, never `\w` (many engines widen `\w` to Unicode, so `adminé` would pass). A value that fails its regex is never substituted or passed to a call.
+
 ### charge
 
 How every AWS call is budgeted. **Before each AWS request** — including the pre-gate resolution calls — decrement `global_call_budget` (run-wide) and the `call_budget` of the **account whose session issues the call**: the operator base account for `get-caller-identity` and `sts get-access-key-info` (which run from an arbitrary granting or the operator base session), the owning account for every owning-account read. One argv is one request; one manual `NextToken`/`Marker` page is one request. Issue the call only when both counters stay within budget: at the per-account cap stop that account and mark it `partial — call budget exhausted`; at the global cap stop the whole run, mark every not-yet-finished account `partial — global call budget exhausted`, and record `caps_hit: ["global_call_budget"]` in `completeness.json`. A hop or derived-subject sweep queued by Step 5 is charged **once, by Step 4** when Step 4 runs it — Step 5 never also charges it.

@@ -7,7 +7,7 @@
 ## GuardDuty — dual Access Mode path
 
 ### `cross-account-role` (delegated admin; delegation is **regional**; enumerate members)
-From the delegated-admin account, **per region**: the delegated admin's own `list-detectors` does **not** list member detectors, so enumerate members explicitly. Validate each returned detector ID and each finding ID as opaque IDs — length 1-300 and charset `[A-Za-z0-9_-]` only, fail closed (AWS publishes only "Length 1-300", no stricter format) — **immediately before use** (regex-dialect note in MODE.md); options are equals-joined:
+From the delegated-admin account, **per region**: the delegated admin's own `list-detectors` does **not** list member detectors, so enumerate members explicitly. Validate each returned detector ID and each finding ID as opaque IDs — length 1-300 and charset `[A-Za-z0-9_-]` only, fail closed (AWS publishes only "Length 1-300", no stricter format) — **immediately before use** (Regex dialect in [`state-contract.md`](state-contract.md)); options are equals-joined:
 ```
 aws guardduty list-detectors --region=<region> --no-paginate                            # the admin's own detector
 aws guardduty list-members --detector-id=<validated admin detector id> --region=<region> --only-associated=false --no-paginate
