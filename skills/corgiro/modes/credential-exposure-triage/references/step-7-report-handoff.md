@@ -8,7 +8,7 @@ Render per [`../../../references/report-format.md`](../../../references/report-f
 
 Report risk on two independent axes, each stated on its own.
 
-1. **Exposure status** — always "rotate now" until the operator confirms rotation. An exposed credential stays at least Medium exposure status (Low is reserved for a credential with no exposure at all).
+1. **Exposure status** — always "rotate now" until the operator confirms rotation. **Never Low** for an exposed credential.
 2. **Observed blast radius (Risk Tier, CONTEXT.md vocabulary):**
    - **Critical** — any `Persistence` / `PrivilegeEscalation` / `CredentialAccess` / `Exfiltration` / `Impact` / `DefenseEvasion` event **succeeded**, or any `containment_defeating` event.
    - **High** — `ResourceAbuse` succeeded; or an `InitialAccess` event succeeded (e.g. an `AssumeRole` hop or `ConsoleLogin`) — the credential reached a session even if no later tactic is yet observed; or a Critical-bucket **attempt** was denied.
@@ -272,7 +272,7 @@ trap - EXIT
 **Rules Corgiro follows (the import contract):**
 
 - `--import` requires `handoff-manifest.json`. Canonicalize the directory; reject symlinks, non-regular files, path escapes, unlisted files, and size/count excesses; verify run ID, task ID, key fingerprint, account, Region, resource, format, and `commands_hash`; never execute imported content; parse by task schema; sanitize before reporting; label conclusions `operator-imported`.
-- Imported logs, Lambda/SSM output, and URLs may contain secrets; keep imported content out of the HTML/Markdown entirely and leave any imported URL unvisited.
+- Imported logs, Lambda/SSM output, and URLs may contain secrets; keep raw imported content out of the report; sanitized, labelled structured extracts are reported per rules 5-7, and any imported URL is left unvisited.
 
 **Rules:**
 
