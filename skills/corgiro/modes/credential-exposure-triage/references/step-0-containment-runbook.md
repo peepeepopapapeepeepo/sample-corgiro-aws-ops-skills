@@ -15,10 +15,10 @@
 ## For a GuardDuty-finding or Health-event subject: resolve first
 
 With `guardduty_finding_id` (+ account + region) or `health_event_arn`, print a generic banner, then make the resolve call(s) to fill it in, then reprint:
-- `aws guardduty get-findings --detector-id <id> --finding-ids <finding-id> --region <region>` — carries the access key, principal, first/last seen, actor IP, and API. Resource type for IAM findings is `AccessKey` ([GuardDuty compromised-credentials](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-creds.html)).
-- For a Health event, **two** calls: `aws health describe-event-details --event-arns <arn> --region us-east-1` returns the event **description** ([DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); then `aws health describe-affected-entities --filter '{"eventArns":["<arn>"]}' --region us-east-1` returns the affected entities, whose `entities[].entityValue` the API documents only as "the ID of the affected entity" ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html) → [AffectedEntity](https://docs.aws.amazon.com/health/latest/APIReference/API_AffectedEntity.html)). Treat `entityValue` as a **candidate** only: accept it as the subject key **iff** it matches `\A(AKIA|ASIA)[0-9A-Z]{16}\z`; otherwise record the key as `not-observable` and require an operator-supplied `access_key_id`. Corgiro does not assert from memory that a credential-exposure event's `entityValue` is an access-key ID.
+- **GuardDuty needs a detector ID, which the parameters do not carry** ([GetFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_GetFindings.html) requires `--detector-id`). So, in the given account/region: (1) `aws guardduty list-detectors --region=<region> --no-paginate` (a counted call), (2) validate the returned detector ID against `\A[0-9a-f]{32}\z` and the supplied finding ID against `\A[0-9a-f]{32,64}\z` before use, then (3) `aws guardduty get-findings --detector-id=<validated detector id> --finding-ids=<validated finding id> --region=<region> --no-paginate`. The finding carries the access key, principal, first/last seen, actor IP, and API; resource type for IAM findings is `AccessKey` ([GuardDuty compromised-credentials](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-creds.html)).
+- For a Health event, validate the supplied `health_event_arn` against `\Aarn:aws[a-z-]*:health:[a-z0-9-]*::event/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\z` before use, then make **two** calls: `aws health describe-event-details --event-arns=<arn> --region=us-east-1` returns the event **description** ([DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); then `aws health describe-affected-entities --filter='{"eventArns":["<arn>"]}' --region=us-east-1` returns the affected entities, whose `entities[].entityValue` the API documents only as "the ID of the affected entity" ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html) → [AffectedEntity](https://docs.aws.amazon.com/health/latest/APIReference/API_AffectedEntity.html)). Treat `entityValue` as a **candidate** only: accept it as the subject key (`key_status: valid`) **iff** it matches `\A(AKIA|ASIA)[0-9A-Z]{16}\z`; otherwise set `key: null` with `key_status: candidate-rejected` (non-key value) or `not-observable` (no entity) and require an operator-supplied `access_key_id` before fan-out. Corgiro does not assert from memory that a credential-exposure event's `entityValue` is an access-key ID.
 
-These are read-only and count against the budget; they are the one exception to "print before any call".
+These are read-only and count against the budget (per MODE.md "Budget accounting"); they are the one exception to "print before any call".
 
 ## Conditional containment branches (print the generic banner, then the branch Step 1 resolves)
 
@@ -38,14 +38,29 @@ aws iam update-access-key --access-key-id="$COMPROMISED_ACCESS_KEY_ID_N" \
 (For a **root** key — branch E — the same call is run **without** `--user-name`, which operates on the caller's own root credentials; see [update-access-key](https://docs.aws.amazon.com/cli/latest/reference/iam/update-access-key.html).) `Inactive` means the key can no longer be used for calls, while `Active` is usable. **Deactivation does not invalidate already-issued temporary credentials** (any `ASIA` sessions the key minted stay valid until they expire) — see branch B.
 
 ### B. The subject resolves to a role session (`ASIA…`, `userIdentity.type=AssumedRole` from `AssumeRole`)
-Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy (an `aws:TokenIssueTime` `DateLessThanEquals` Deny) to the role — this requires `iam:PutRolePolicy` and **affects every session of that role issued before now, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)):
+Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy — an `aws:TokenIssueTime` `DateLessThanEquals` Deny — to the role. This requires `iam:PutRolePolicy` and **affects every session of that role issued before `<ISO8601 revoke-cutoff>`, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)). The only placeholders are `<ROLE_NAME_AFTER_STEP_1>` (validated IAM name) and `<ISO8601 revoke-cutoff>` (the containment timestamp); the policy body is a fixed template written to a file and passed by `file://`:
 ```
 # not executed by Corgiro — run under your own authority
+cat > /tmp/revoke-older-sessions.json <<'POLICY'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AWSRevokeOlderSessions",
+      "Effect": "Deny",
+      "Action": ["*"],
+      "Resource": ["*"],
+      "Condition": { "DateLessThan": { "aws:TokenIssueTime": "REVOKE_CUTOFF_ISO8601" } }
+    }
+  ]
+}
+POLICY
+# edit REVOKE_CUTOFF_ISO8601 to your containment timestamp, then:
 aws iam put-role-policy --role-name=<ROLE_NAME_AFTER_STEP_1> \
   --policy-name=AWSRevokeOlderSessions \
-  --policy-document=<AWSRevokeOlderSessions document — see the doc above>
+  --policy-document=file:///tmp/revoke-older-sessions.json
 ```
-If the role is an IAM Identity Center permission-set role, revoke it in Identity Center instead ([Use a Deny policy to revoke active user permissions](https://docs.aws.amazon.com/singlesignon/latest/userguide/prereqs-revoking-user-permissions.html)).
+(The heredoc is single-quoted (`'POLICY'`) so nothing in the body is shell-expanded.) If the role is an IAM Identity Center permission-set role, revoke it in Identity Center instead ([Use a Deny policy to revoke active user permissions](https://docs.aws.amazon.com/singlesignon/latest/userguide/prereqs-revoking-user-permissions.html)).
 
 ### C. The subject resolves to `ASIA…` from `GetSessionToken` / `GetFederationToken`
 These are minted by an underlying IAM user. Apply an `aws:TokenIssueTime` Deny on **the user** AND deactivate the issuing `AKIA` key (branch A) — otherwise the user keeps minting new sessions.

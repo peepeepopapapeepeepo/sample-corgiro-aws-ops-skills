@@ -7,7 +7,7 @@ Expand the subject graph **within caps, through a new expansion gate**. Every pi
 ## Hops — STS chains
 From **successful** `AssumeRole` / `GetFederationToken` / `GetSessionToken` events — identified from the persisted (masked) timeline by their `(eventSource, eventName)` and `succeeded` outcome — take:
 - the derived `ASIA…` key: read its **raw** value from the in-memory `sha256`→key map (populated in Step 4 before masking, keyed by the page's `responseElements.credentials.accessKeyId.sha256`); never read a raw key from a timeline file.
-- `assumedRoleUser.arn` (validated as a role ARN, `\A[A-Za-z0-9]...` per the handoff ARN pattern),
+- `assumedRoleUser.arn`: this is an **assumed-role ARN** (`arn:aws:sts::<acct>:assumed-role/<role>/<session>`), **not** an IAM role ARN, so validate it against the assumed-role pattern `\Aarn:aws[a-z-]*:sts::[0-9]{12}:assumed-role/[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}/[A-Za-z0-9*][A-Za-z0-9_+=,.@*-]{0,63}\z` ([ARN format](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html); the session segment may contain `*` after masking). This value is **recorded** in `sessions.json`, never substituted into a command.
 - the target account (validated `\A[0-9]{12}\z`).
 If the target account is in the Roster, queue a Step 4 timeline for that `ASIA` key (new expansion gate, depth+1). If outside the Roster, record the attempt only (`in_roster: false`) — never follow. **Never recurse on a failed STS call.** Stop at `max_hops` / `max_sessions`, recording `reason_not_followed`.
 
@@ -15,7 +15,7 @@ If the target account is in the Roster, queue a Step 4 timeline for that `ASIA` 
 From **successful** `CreateAccessKey`, the derived `AKIA…` key's raw value is read from the in-memory `sha256`→key map (keyed by the page's `responseElements.accessKey.accessKeyId.sha256`); queue it as a derived subject in the **same account**, up to `max_derived_subjects`. This is how attacker-created keys get their own timelines. Record in `sessions.json.derived_subjects`.
 
 ## Principal watchlist
-The watchlist holds **only principals proven created by a successful `CreateUser` or `CreateRole`** (validated IAM name `\A[A-Za-z0-9][\w+=.@-]{0,63}\z`). A successful `CreateLoginProfile` / `CreateInstanceProfile` / `AddRoleToInstanceProfile` is attached as an **artifact of an already-watchlisted created principal**, never as independent proof that its target principal is attacker-created — so Step 6c never excludes a pre-existing user from lockout analysis just because a login profile was set on it.
+The watchlist holds **only principals proven created by a successful `CreateUser` or `CreateRole`** (validated IAM name `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z`). A successful `CreateLoginProfile` / `CreateInstanceProfile` / `AddRoleToInstanceProfile` is attached as an **artifact of an already-watchlisted created principal**, never as independent proof that its target principal is attacker-created — so Step 6c never excludes a pre-existing user from lockout analysis just because a login profile was set on it.
 
 ## Instance-role session review
 When the subject touched instances — `SendCommand`, `SendSSHPublicKey`, `AssociateIamInstanceProfile` — run a supplemental, gated lookup for the **instance** (an instance-role session, not an STS hop), with the instance ID validated `\Ai-[0-9a-f]{8,17}\z` and passed via the JSON form of `--lookup-attributes` (never shorthand):
@@ -29,7 +29,7 @@ Tag these pages `search: "username"` (file `<region>-un-pN.json`). `Username`-at
 ## Caps and gates
 - Each depth increment is one new expansion gate appended to `target-plan.json.expansions[]` with the batch of values, the field they came from, and the regex matched.
 - `max_sessions` bounds total distinct hop sessions; `max_derived_subjects` bounds queued keys; `max_hops` bounds chain depth. A cap hit is recorded, not silently dropped.
-- **Budget (both counters, pre-call).** The instance-session lookup and each queued hop/derived Step-4 sweep decrement both `call_budget` and `global_call_budget` before the call; stop the account at the per-account cap (`partial — call budget exhausted`) and stop the whole run before a call that would exceed `global_call_budget` (`partial — global call budget exhausted`, recorded in `completeness.json`).
+- **Budget (both counters, pre-call; Step 5 charges only its own calls).** The **instance-session lookup** issued directly by Step 5 decrements both `call_budget` (its account) and `global_call_budget` before the call. A queued hop/derived-subject timeline is **not** charged here — it is charged **once, by Step 4** when Step 4 runs it (no double-counting). Stop the account at its per-account cap (`partial — call budget exhausted`) and the whole run before a call that would exceed `global_call_budget` (`partial — global call budget exhausted`, recorded in `completeness.json`).
 
 **Dual Access Mode:** all calls are `cloudtrail:LookupEvents`, available on every path.
 

@@ -2,7 +2,7 @@
 
 **Inputs:** `target-plan.json`; `subjects.json`.
 
-**Allowed call** (read-only), per subject per enabled region, **us-east-1 first** (IAM events and global-endpoint STS events land in us-east-1; regional STS endpoints log per region). Pass the raw key via a **file or JSON** form of `--lookup-attributes` (never string-interpolated shorthand), reading the value from the subject's `$COMPROMISED_ACCESS_KEY_ID_N` (operator subject) or the in-memory key map (hop/derived subject):
+**Allowed call** (read-only), per subject per enabled region, **us-east-1 first** (IAM events and global-endpoint STS events land in us-east-1; regional STS endpoints log per region — [cited](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)). Pass the raw key via a **file or JSON** form of `--lookup-attributes` (never string-interpolated shorthand), reading the value from the subject's `$COMPROMISED_ACCESS_KEY_ID_N` (operator subject) or the in-memory key map (hop/derived subject):
 ```
 aws cloudtrail lookup-events \
   --lookup-attributes "$(printf '[{"AttributeKey":"AccessKeyId","AttributeValue":"%s"}]' "$COMPROMISED_ACCESS_KEY_ID_1")" \
@@ -10,6 +10,16 @@ aws cloudtrail lookup-events \
   --region <region> --no-paginate
 ```
 Using the JSON form (or `file://`) means the value is never pasted into shorthand `Key=…,Value=…` where a `,` or `=` in the value could retarget the lookup. Then loop manually on the returned `NextToken` (one page = one counted call).
+
+**Account scope of the primary lookup (L4).** A long-term `AKIA` key's events exist only in its **owning account**, so its primary `AccessKeyId` lookup runs **only in that owning account**, regardless of the `accounts` scope. Hop `ASIA` keys and derived `AKIA` keys are looked up in **their own** accounts. The broader `accounts` scope and the supplemental searches below are the only things that fan across other plan accounts.
+
+**Role-session subject path (`role_arn` + `session_name`; R3).** A role-session subject has **no** access key to look up by `AccessKeyId`. Instead, in the subject's owning account, search by the session name and filter client-side on the role:
+```
+aws cloudtrail lookup-events \
+  --lookup-attributes "$(printf '[{"AttributeKey":"Username","AttributeValue":"%s"}]' "$VALIDATED_SESSION_NAME")" \
+  --start-time <since> --end-time <until> --region <region> --no-paginate
+```
+`$VALIDATED_SESSION_NAME` is the `session_name` parameter validated against `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{1,63}\z`. For `AssumedRole` events, CloudTrail records the issuing role at `userIdentity.sessionContext.sessionIssuer.arn` ([userIdentity element](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)); **keep only events whose `userIdentity.sessionContext.sessionIssuer.arn == <role_arn>`** (a different role may reuse the same session name). This runs under the Step 2 gate like any lookup, tagged `search: "username"`.
 
 **Facts (cited):**
 - Valid `LookupAttributeKey` values: `EventId | EventName | ReadOnly | Username | ResourceType | ResourceName | EventSource | AccessKeyId` ([LookupAttribute](https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_LookupAttribute.html)).
@@ -21,7 +31,7 @@ Using the JSON form (or `file://`) means the value is never pasted into shorthan
 **Tag each page with the search that produced it.** The page schema's `search` field records whether a page came from the primary `AccessKeyId` lookup (`"primary"`), the supplemental `ResourceName` search (`"resourcename"`), or the `Username` instance search (`"username"`). Step 6e's STILL-ACTIVE test counts only events whose `userIdentity.accessKeyId` sha256 equals the subject fingerprint, so supplemental-search events (which are events done *to* the principal, often by the operator or others) never falsely raise STILL ACTIVE. File names encode the search too: `<region>-p1.json` for primary, `<region>-rn-p1.json` for ResourceName, `<region>-un-p1.json` for Username.
 
 **The gated supplemental `ResourceName` search (runs here, after the Step 2 gate — not in Step 1):**
-After the Step 2 gate, and only with the principal name validated against `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` (first char alphanumeric, no comma, full-string match, no newline), run a supplemental lookup for events done **to** the principal (policy attaches, trust changes), using the JSON/file form of `--lookup-attributes` so the validated name is never pasted into shorthand:
+After the Step 2 gate, and only with the principal name validated against `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z` (first char alphanumeric, no comma, full-string match, no newline), run a supplemental lookup for events done **to** the principal (policy attaches, trust changes), using the JSON/file form of `--lookup-attributes` so the validated name is never pasted into shorthand:
 ```
 aws cloudtrail lookup-events \
   --lookup-attributes "$(printf '[{"AttributeKey":"ResourceName","AttributeValue":"%s"}]' "$VALIDATED_PRINCIPAL_NAME")" \
