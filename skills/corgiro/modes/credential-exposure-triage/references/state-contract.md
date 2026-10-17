@@ -42,6 +42,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
       "kind": "akia-user-key | asia-session | guardduty-finding | health-event | role-session",
       "key": "<object { masked, sha256 } | null — null for role-session, candidate-rejected, and not-observable subjects>",
       "key_status": "valid | candidate-rejected | not-observable",
+      "key_status_after_containment": "<deactivated-verified | active | expired | unknown — persisted containment state, computed read-only (see below); feeds the Step 7 containment-state column and the STILL ACTIVE banner, never re-typed in the report>",
       "owning_account": "111111111111",
       "principal": {
         "type": "IAMUser | AssumedRole | Root | FederatedUser | Unknown",
@@ -50,7 +51,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
       },
       "role_arn": "<role-session subjects only: the validated IAM role ARN (operator-supplied `role_arn`); null for every other kind>",
       "session_name": "<role-session subjects only: the validated `session_name` parameter; null for every other kind>",
-      "resolved_via": ["<one or more of: sts:GetAccessKeyInfo, iam:GetAccessKeyLastUsed, operator-supplied, guardduty:GetFindings, health:DescribeAffectedEntities>"],
+      "resolved_via": ["<one or more of: sts:GetAccessKeyInfo, iam:GetAccessKeyLastUsed, operator-supplied, guardduty:GetFindings, health:DescribeAffectedEntities, or 'derived:<eventName>' for a derived subject>"],
       "last_used": { "date": "<iso8601 | null | 'not-observable'>", "service": "<svc | null>", "region": "<region | null>" },
       "quarantine_policy": "AWSCompromisedKeyQuarantineV2 | AWSCompromisedKeyQuarantineV3 | none | not-observable",
       "status": "resolved | unresolved | unresolved-account | account-outside-roster | degraded-view-only",
@@ -64,7 +65,16 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
 
 **`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the key-based targeted Step 3/4/5 fan-out; a non-`valid` **access-key** subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`. **One exemption (authoritative here as in MODE.md "Key validity gate"):** a subject with `kind: role-session`, non-null `role_arn` and `session_name`, and `key_status: not-observable` **is allowed to run Step 4 only**, by the role-session `Username` lookups (its `target-plan.json` lookup has `lookup_attribute: Username`; it runs two attempts — value source `subject.session_name`, then `subject.principal.name` (the role name) as a fallback, each filtered client-side on the role); it runs no Step 3 signal collection and no Step 5 expansion. Zero kept events from both attempts is `not-observable`, never "no activity".
 
-**Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
+**`key_status_after_containment` is computed read-only, with a fixed precedence.** When `target-plan.json.contained_at` is set, Step 6e/Step 7 derive this field per subject from state, never from operator assertion, using the precedence **`active` > `expired` > `deactivated-verified` > `unknown`** (the first that applies wins):
+- **`active`** — a primary-search event by this subject (key fingerprint, or role ARN + session name) is later than `contained_at`, **or** `iam list-access-keys` reports the key `Active`, **or** the STS session's `responseElements.credentials.expiration` is still in the future. (A post-containment event wins even over an expired session, so the banner and the column agree.)
+- **`expired`** — a temporary `ASIA` session whose captured `expiration` is in the past **and** no post-`contained_at` event exists. Still note that any trusting principal can re-mint it (Step 0 branch B trust-policy read).
+- **`deactivated-verified`** — `iam list-access-keys --user-name=<validated name>` reports the key `Inactive` (or the `AWSRevokeOlderSessions` Deny is attached, for a role), with no post-`contained_at` event.
+- **`unknown`** — the status call was denied or not run, or no `contained_at` was supplied.
+A subject the STILL ACTIVE banner (Step 6e) flags is `active` here by construction.
+
+**Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject. A derived subject's `resolved_via` is **`"derived:<eventName>"`** (e.g. `derived:CreateAccessKey`), never `operator-supplied` — it was discovered from a traced event, not handed in by the operator.
+
+
 
 ## `target-plan.json` (Step 2, targeted path) / `discovery-plan.json` (Step 1b, discovery path)
 
@@ -73,7 +83,9 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
 ```json
 {
   "mode": "targeted | discovery",
+  "access_mode": "cross-account-role | identity-center-direct",
   "approved_at": "<iso8601>",
+  "contained_at": "<iso8601 | null — the operator's --contained-at parameter, persisted so Step 6e STILL-ACTIVE and the Step 7 containment-state column are computed from state, never re-typed>",
   "window": { "since": "<iso8601>", "until": "<iso8601>", "clipped_to_90d": false },
   "accounts": ["111111111111", "222222222222"],
   "regions_by_account": { "111111111111": ["us-east-1", "us-west-2"] },
@@ -174,11 +186,12 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
       "userIdentity": { "type": "IAMUser | AssumedRole | Root | ...", "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "arn": "<arn>" },
       "requestParameters": { "<sanitized subset, value-masked>": "..." },
       "responseElements": {
-        "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken, CreateAccessKey, and ssm SendCommand — each with only the members shown for it",
+        "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken, CreateAccessKey, ssm SendCommand, and ec2 RunInstances — each with only the members shown for it",
         "credentials": { "accessKeyId": { "masked": "ASIA****XXXX", "sha256": "<64-hex>" }, "expiration": "<iso8601>" },
         "assumedRoleUser": { "arn": "<arn>" },
         "accessKey": { "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "userName": "<name>", "status": "Active", "createDate": "<iso8601>" },
-        "command": { "commandId": "<uuid — ssm.amazonaws.com/SendCommand only; the only responseElements member kept for that event>" }
+        "command": { "commandId": "<uuid — ssm.amazonaws.com/SendCommand only; the only responseElements member kept for that event>" },
+        "instancesSet": { "items": [ { "instanceId": "i-0123456789abcdef0" } ] }
       },
       "outcome": "succeeded | attempted"
     }
@@ -186,7 +199,7 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
 }
 ```
 
-`responseElements` is kept only for STS, `CreateAccessKey`, and `ssm.amazonaws.com / SendCommand`, and only the fields above: STS events keep `credentials.accessKeyId` (masked) / `credentials.expiration` / `assumedRoleUser.arn`; `CreateAccessKey` keeps the `accessKey` object; `SendCommand` keeps **only** `command.commandId` (the identifier Step 6b's `ssm list-commands` follow-up and the Step 7 SSM handoff task need) and nothing else from its response, while its `requestParameters` are reduced to `documentName` and `instanceIds` with `parameters` dropped before the first write (MODE.md Safety). `accessKey.accessKeyId` is retained (masked) because Step 5 and the lifecycle `CreateAccessKey` row pair on it; the raw value of any hop/derived key is captured into the in-memory `sha256`→key map **before** masking (MODE.md Safety) and Step 5 reads it from there. The JSON keys named **`sessionToken` and `secretAccessKey` are dropped** (exact names, case-sensitive); if a field by either exact name survives into bytes about to be written, the write fails closed. Every key ID anywhere in the page is sanitized in memory (whole-value → `{masked, sha256}`; substring in a string → `AKIA****XXXX`) before the pre-write scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
+`responseElements` is kept only for STS, `CreateAccessKey`, `ssm.amazonaws.com / SendCommand`, and `ec2.amazonaws.com / RunInstances`, and only the fields above: STS events keep `credentials.accessKeyId` (masked) / `credentials.expiration` / `assumedRoleUser.arn`; `CreateAccessKey` keeps the `accessKey` object; `SendCommand` keeps **only** `command.commandId` (the identifier Step 6b's `ssm list-commands` follow-up and the Step 7 SSM handoff task need) and nothing else from its response, while its `requestParameters` are reduced to `documentName` and `instanceIds` with `parameters` dropped before the first write (MODE.md Safety); `RunInstances` keeps **only** `instancesSet.items[].instanceId` (the IDs the Step 6b `ec2 describe-instances` lifecycle follow-up reads; an instance ID is not an access key and needs no masking). `accessKey.accessKeyId` is retained (masked) because Step 5 and the lifecycle `CreateAccessKey` row pair on it; the raw value of any hop/derived key is captured into the in-memory `sha256`→key map **before** masking (MODE.md Safety) and Step 5 reads it from there. The JSON keys named **`sessionToken` and `secretAccessKey` are dropped** (exact names, case-sensitive); if a field by either exact name survives into bytes about to be written, the write fails closed. Every key ID anywhere in the page is sanitized in memory (whole-value → `{masked, sha256}`; substring in a string → `AKIA****XXXX`) before the pre-write scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
 
 ## `sessions.json` (Step 5)
 
@@ -254,7 +267,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
     }
   ],
   "lockout": [
-    { "target_principal": "<iam name, not the subject>", "via_event": "PutUserPolicy", "deny_found": true, "current_state": "<login profile / policy / key status>", "reversal": "<guidance>" }
+    { "target_principal": "<iam name, not the subject>", "via_event": "PutUserPolicy", "event_id": "<uuid — the same event>", "bucket": "Impact", "deny_found": true, "current_state": "<login profile / policy / key status>", "reversal": "<guidance>" }
   ],
   "ip_ua_index": [
     { "sourceIPAddress": "<ip>", "userAgents": ["<ua>"], "principals": ["<fingerprint or arn>"], "accounts": ["111111111111"] }
@@ -266,7 +279,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
 }
 ```
 
-`bucket` values are assigned only on an exact `(eventSource, eventName)` match in [`event-catalog.md`](event-catalog.md); an unmatched `readOnly=true` event is generic `Discovery`. `confidence` and `outcome` are set per event. `containment_defeating: true` marks the Critical events in Step 6g. On the discovery path with no subject picked, `findings[]` is empty and `coverage_gaps[]` carries the detection-coverage findings.
+`bucket` values are assigned only on an exact `(eventSource, eventName)` match in [`event-catalog.md`](event-catalog.md); an unmatched `readOnly=true` event is generic `Discovery`. `confidence` and `outcome` are set per event. `containment_defeating: true` marks the Critical events in Step 6g. On the discovery path with no subject picked, `findings[]` is empty and `coverage_gaps[]` carries the detection-coverage findings. **Lockout invariant:** every `lockout[]` entry carries `bucket: "Impact"`, and the **same event in `findings[]` (matched by `event.eventId` == `lockout[].event_id`) MUST also be `bucket: "Impact"`** — a Deny-direction lockout is one classification, not `Impact` in the lockout table and `PrivilegeEscalation` in the finding/timeline (event-catalog two-row split; Step 6a direction rule).
 
 ## `discovery-result.json` (Step 1b, discovery path)
 
@@ -302,6 +315,8 @@ The honest coverage record that feeds the report's Methodology and every coverag
   "coverage": {
     "accounts": { "full": ["111111111111"], "partial": [ { "account": "222222222222", "reason": "call budget exhausted" } ], "unreachable": [], "errored": [] },
     "regions_queried_by_account": { "111111111111": ["us-east-1", "us-west-2"] },
+    "regions_source": "account:ListRegions | operator-supplied | config defaultRegions | fallbackRegions",
+    "enabled_regions_not_queried": "<list of enabled Regions in the footprint that were not queried, or null when the enabled set is unknown (account:ListRegions not run)>",
     "window": { "since": "<iso8601>", "until": "<iso8601>", "clipped_to_90d": false },
     "earliest_event_returned": "<iso8601 | null>",
     "caps_hit": ["max_hops", "call_budget:222222222222", "global_call_budget"],
