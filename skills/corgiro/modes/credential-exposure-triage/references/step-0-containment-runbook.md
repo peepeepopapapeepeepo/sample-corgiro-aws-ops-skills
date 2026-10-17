@@ -6,8 +6,9 @@
 - Print this **before** any collection call so the operator can contain while Corgiro reads.
 - **Never infer identity from the key prefix.** Before Step 1 resolves the principal, print only conditional containment branches; never infer IAM user, root, role, workload role, GetSessionToken, or GetFederationToken from the key prefix. The prefix (`AKIA` vs `ASIA`) narrows which branches *could* apply, but which one is correct is unknown until Step 1.
 - Every command here is **containment / mutating guidance the operator runs under their own authority** — label it `not executed by Corgiro — run under your own authority`. `CorgiroReadOnlyRole` cannot perform any of it. Corgiro never runs these.
-- Printed commands never contain a raw key ID: use `$COMPROMISED_ACCESS_KEY_ID` ("the key you supplied"). All other substituted values (user name, role name, account, region) are literal only **after** Step 1 resolves them and only when they match their regex (MODE.md Safety); until then show the placeholder.
-- Also write this runbook to `containment.md` in the Run Directory (masked; H3).
+- Printed commands never contain a raw key ID: use the subject's `$COMPROMISED_ACCESS_KEY_ID_N` placeholder ("the key you supplied"). All other substituted values (user name, role name, account, region) are literal only **after** Step 1 resolves them and only when they match their regex (MODE.md Safety); until then show the placeholder.
+- Also write this runbook to `containment.md` in the Run Directory (key IDs masked per MODE.md Safety).
+- **No-subject discovery path:** there is no key to contain yet, so Step 0 prints only the **generic banner** (all branches A-E with their "applies if" conditions) as standing guidance, and writes it to `containment.md`. The operator contains after Step 1b surfaces suspects and they pick subjects; the targeted re-run then prints the resolved branch.
 
 **Output:** `containment.md`, and the same text to the terminal.
 
@@ -19,20 +20,24 @@ With `guardduty_finding_id` (+ account + region) or `health_event_arn`, print a 
 
 These are read-only and count against the budget; they are the one exception to "print before any call".
 
-## Conditional containment branches (print all that could apply until Step 1 resolves)
+## Conditional containment branches (print the generic banner, then the branch Step 1 resolves)
 
-Because identity is not yet known, print every branch whose prefix is consistent with the subject, flagged "applies if the key resolves to …":
+Identity is unknown before Step 1, and the key **prefix never selects a branch** — an `AKIA` can be an IAM-user key or a root key, and an `ASIA` can be a role session, a federation/session-token session, or a workload-role session. So:
+- **Before Step 1 resolves** (and for the no-subject discovery path, which has no key yet): print a **generic banner** listing all branches A-E with the one-line condition under which each applies ("if the key resolves to an IAM-user key …", "… to a role session …", etc.), and instruct the operator to wait for the resolved branch unless they already know the identity.
+- **After Step 1 resolves**: reprint only the branch that matches the resolved principal type (and fill its validated names). Root is branch E and is selected only by `userIdentity.type == Root` or an active root key in the credential report — never by the `AKIA` prefix.
 
-### A. The subject resolves to an IAM user long-lived key (`AKIA…`)
+Each branch below carries its "applies if" condition explicitly.
+
+### A. The subject resolves to an IAM user long-lived key (`AKIA…`, `userIdentity.type=IAMUser`)
 Deactivate the key — do not delete it first (deleting the key removes its last-used data, and the point of containment is to neutralize the key while preserving evidence; see [delete-access-key](https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteAccessKey.html)):
 ```
 # not executed by Corgiro — run under your own authority
-aws iam update-access-key --access-key-id "$COMPROMISED_ACCESS_KEY_ID" \
+aws iam update-access-key --access-key-id "$COMPROMISED_ACCESS_KEY_ID_N" \
   --status Inactive --user-name <USER_NAME_AFTER_STEP_1>
 ```
-`Inactive` means the key can no longer be used for calls, while `Active` is usable ([update-access-key](https://docs.aws.amazon.com/cli/latest/reference/iam/update-access-key.html)). **Deactivation does not invalidate already-issued temporary credentials** (any `ASIA` sessions the key minted stay valid until they expire) — see branch B.
+(For a **root** key — branch E — the same call is run **without** `--user-name`, which operates on the caller's own root credentials; see [update-access-key](https://docs.aws.amazon.com/cli/latest/reference/iam/update-access-key.html).) `Inactive` means the key can no longer be used for calls, while `Active` is usable. **Deactivation does not invalidate already-issued temporary credentials** (any `ASIA` sessions the key minted stay valid until they expire) — see branch B.
 
-### B. The subject is a role session (`ASIA…` from `AssumeRole`)
+### B. The subject resolves to a role session (`ASIA…`, `userIdentity.type=AssumedRole` from `AssumeRole`)
 Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy (an `aws:TokenIssueTime` `DateLessThanEquals` Deny) to the role — this requires `iam:PutRolePolicy` and **affects every session of that role issued before now, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)):
 ```
 # not executed by Corgiro — run under your own authority
@@ -42,13 +47,13 @@ aws iam put-role-policy --role-name <ROLE_NAME_AFTER_STEP_1> \
 ```
 If the role is an IAM Identity Center permission-set role, revoke it in Identity Center instead ([Use a Deny policy to revoke active user permissions](https://docs.aws.amazon.com/singlesignon/latest/userguide/prereqs-revoking-user-permissions.html)).
 
-### C. The subject is `ASIA…` from `GetSessionToken` / `GetFederationToken`
+### C. The subject resolves to `ASIA…` from `GetSessionToken` / `GetFederationToken`
 These are minted by an underlying IAM user. Apply an `aws:TokenIssueTime` Deny on **the user** AND deactivate the issuing `AKIA` key (branch A) — otherwise the user keeps minting new sessions.
 
-### D. The subject is a workload role session (instance / task / function role)
+### D. The subject resolves to a workload role session (instance / task / function role; `AssumedRole` whose role is a workload role)
 Treat the workload as compromised: apply a session Deny keyed on `aws:userId`, and isolate/snapshot the workload per GuardDuty's EC2 compromise runbook ([Remediating a compromised EC2 instance](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-ec2.html)). Snapshotting is evidence preservation the operator runs — it is **not** in `handoff.md` (handoff commands are read-only); it is containment guidance here.
 
-### E. The subject is the root user
+### E. The subject resolves to the root user (`userIdentity.type=Root`, or an active root key in the credential report)
 Separate root runbook: sign in as root, delete the root access keys, and enable/rotate root MFA ([Resolve unauthorized activity](https://aws.amazon.com/premiumsupport/knowledge-center/potential-account-compromise)). Root is confirmed only when a resolved event shows `userIdentity.type == Root` or the credential-report root row has an active key — never inferred from the prefix (Step 6f).
 
 ## Common lines (print always)
