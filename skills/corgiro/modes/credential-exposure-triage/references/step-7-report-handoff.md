@@ -60,7 +60,6 @@ Everything in "Not RO-feasible" becomes a handoff task written to `handoff.md` (
 
 - Generate handoff commands from static argv templates only. Validate every substitution against a field-specific allowlist and shell-quote it; option names, local paths, SQL structure, and commands are fixed in the template, so only regex-validated identifiers vary. Emit a command only when every required value is present and validated.
 - A command template is a fixed argv with typed holes. Each hole is filled only from a **designated event field**, validated against the **per-type regex** below, and shell-quoted. If any required value is missing or fails validation, emit the `FINDING` block (SKILL.md Prompt Injection Defense, suspicious-metadata reporting) **in place of the command** (a partial or guessed command is a prohibited outcome — hard guardrail c).
-- This is why `handoff.md` is safe even though it pastes attacker-chosen names (function, bucket, log group, ARN) into commands an admin runs with admin rights: SKILL.md's Prompt Injection Defense renders metadata as inert text, so the only values ever substituted here are regex-constrained identifiers, and they stay identifiers (not option names or shell structure).
 - All handoff commands are **read-only or evidence-preserving only**. `ec2 create-snapshot` **mutates** AWS and therefore lives in `containment.md` (Step 0 branch D), not here. Label CloudTrail Lake / Athena queries as **billable**.
 
 ### Per-type substitution regexes (field-specific allowlist)
