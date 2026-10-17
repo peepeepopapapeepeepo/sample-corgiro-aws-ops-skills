@@ -72,7 +72,7 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
 { "depth": 1, "kind": "hop | derived-subject | instance-session",
   "values": [ { "masked": "ASIA****XXXX", "sha256": "<64-hex>" } ],
   "designated_field": "responseElements.credentials.accessKeyId",
-  "regex": "^ASIA[0-9A-Z]{16}$",
+  "regex": "\\AASIA[0-9A-Z]{16}\\z",
   "accounts": ["222222222222"], "approved_at": "<iso8601>" }
 ```
 
@@ -137,7 +137,7 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
         "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken and CreateAccessKey",
         "credentials": { "accessKeyId": { "masked": "ASIA****XXXX", "sha256": "<64-hex>" }, "expiration": "<iso8601>" },
         "assumedRoleUser": { "arn": "<arn>" },
-        "accessKey": { "userName": "<name>", "status": "Active", "createDate": "<iso8601>" }
+        "accessKey": { "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "userName": "<name>", "status": "Active", "createDate": "<iso8601>" }
       },
       "outcome": "succeeded | attempted"
     }
@@ -145,7 +145,7 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
 }
 ```
 
-`responseElements` is kept only for STS and `CreateAccessKey`, and only the fields above — **`credentials.sessionToken` and `credentials.secretAccessKey` are dropped** and, if either appears in a page about to be written, the write fails closed (MODE.md Safety). Every `accessKeyId` and any key-shaped value anywhere in the page is value-masked `{masked, sha256}` before the first write, followed by the post-write fail-closed scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
+`responseElements` is kept only for STS and `CreateAccessKey`, and only the fields above. `accessKey.accessKeyId` is retained (masked) because Step 5 and the lifecycle `CreateAccessKey` row pair on it; the raw value of any hop/derived key is captured into the in-memory `sha256`→key map **before** masking (MODE.md Safety) and Step 5 reads it from there. The JSON keys named **`sessionToken` and `secretAccessKey` are dropped** (exact names, case-sensitive); if a field by either exact name survives into bytes about to be written, the write fails closed. Every key ID anywhere in the page is sanitized in memory (whole-value → `{masked, sha256}`; substring in a string → `AKIA****XXXX`) before the pre-write scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
 
 ## `sessions.json` (Step 5)
 
@@ -173,7 +173,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
       "instance_sessions": [
         { "trigger_event": "SendCommand", "instance_id": "i-0123456789abcdef0", "username_lookup_done": true }
       ],
-      "watchlist_principals": ["<iam name created by CreateUser/CreateRole/CreateLoginProfile>"]
+      "watchlist_principals": ["<iam name proven created by a successful CreateUser or CreateRole only>"]
     }
   }
 }
@@ -188,6 +188,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
   "findings": [
     {
       "id": "f-001",
+      "kind": "event",
       "subject": "<fingerprint>",
       "account": "111111111111",
       "region": "us-east-1",
@@ -198,6 +199,17 @@ A tree: subject → hops → derived subjects, plus instance-role session review
       "lifecycle": { "resource_id": "<id>", "state": "created-still-live | created-then-deleted | unknown", "follow_up_event": "<eventName | null>" },
       "containment_defeating": false,
       "notes": "<agent-authored>"
+    }
+  ],
+  "coverage_gaps": [
+    {
+      "id": "g-001",
+      "kind": "coverage-gap",
+      "gap_type": "no-guardduty-detector | health-subscription-required | signal3-partial | permission-degraded",
+      "account": "111111111111",
+      "region": "us-east-1 | null",
+      "risk_tier": "Informational",
+      "recommendation": "<agent-authored, e.g. enable GuardDuty in this account/region>"
     }
   ],
   "lockout": [
@@ -213,7 +225,31 @@ A tree: subject → hops → derived subjects, plus instance-role session review
 }
 ```
 
-`bucket` values are assigned only on an exact `(eventSource, eventName)` match in [`event-catalog.md`](event-catalog.md); an unmatched `readOnly=true` event is generic `Discovery`. `confidence` and `outcome` are set per event. `containment_defeating: true` marks the Critical events in Step 6g.
+`bucket` values are assigned only on an exact `(eventSource, eventName)` match in [`event-catalog.md`](event-catalog.md); an unmatched `readOnly=true` event is generic `Discovery`. `confidence` and `outcome` are set per event. `containment_defeating: true` marks the Critical events in Step 6g. On the discovery path with no subject picked, `findings[]` is empty and `coverage_gaps[]` carries the detection-coverage findings.
+
+## `discovery-result.json` (Step 1b, discovery path)
+
+The ranked suspect table the operator picks from; also the discovery-path report's data source.
+
+```json
+{
+  "ranked_suspects": [
+    {
+      "key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+      "owner": "<iam user/role name | null>",
+      "account": "111111111111",
+      "signals_fired": ["signal-0-health", "signal-1-guardduty", "signal-2-credential-report", "signal-3-sample"],
+      "first_seen": "<iso8601 | null>",
+      "why": "<agent-authored reason>",
+      "confidence": "near-certain | likely | hygiene-flag | sampled"
+    }
+  ],
+  "all_signals_empty": false,
+  "detection_coverage": ["<per-account/region coverage summary, mirrors completeness.coverage>"]
+}
+```
+
+When `all_signals_empty` is `true`, the report states `no exposure signal observed; detection coverage: <list>` — never an all-clear (Risk Tier Informational, `badge--zinc`).
 
 ## `completeness.json` (Step 6)
 
