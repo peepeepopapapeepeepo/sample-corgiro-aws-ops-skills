@@ -23,10 +23,10 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
         "name": "<iam user or role name, or null until resolved>",
         "arn": "<principal arn, or null>"
       },
-      "resolved_via": "sts:GetAccessKeyInfo | iam:GetAccessKeyLastUsed | operator-supplied | guardduty:GetFindings | health:DescribeEventDetails",
+      "resolved_via": "sts:GetAccessKeyInfo | iam:GetAccessKeyLastUsed | operator-supplied | guardduty:GetFindings | health:DescribeAffectedEntities",
       "last_used": { "date": "<iso8601 | null>", "service": "<svc | null>", "region": "<region | null>" },
       "quarantine_policy": "AWSCompromisedKeyQuarantineV2 | AWSCompromisedKeyQuarantineV3 | none | not-observable",
-      "status": "resolved | unresolved | account-outside-roster | degraded-view-only",
+      "status": "resolved | unresolved | unresolved-account | account-outside-roster | degraded-view-only",
       "derived_from": "<parent subject fingerprint, or null if operator-supplied>",
       "notes": "<free text, agent-authored, never attacker data>"
     }
@@ -57,7 +57,7 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
       "scope": "per-account per-region, us-east-1 first"
     }
   ],
-  "caps": { "max_hops": 2, "max_sessions": 20, "max_derived_subjects": 10, "call_budget": 200, "max_parallel": 4 },
+  "caps": { "max_hops": 2, "max_sessions": 20, "max_derived_subjects": 10, "call_budget": 200, "global_call_budget": 2000, "max_parallel": 4 },
   "estimate_calls": { "lower_bound": 71, "with_pagination": 119 },
   "expansions": []
 }
@@ -84,7 +84,7 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
         "coverage": "subscribed | subscription-required | not-permitted",
         "events": [ { "arn": "<health event arn>", "eventTypeCode": "<code>", "statusCode": "<code>", "startTime": "<iso8601>" } ]
       },
-      "credential_report": { "collected": true, "stale_hint": "<freshness note>", "path": "evidence/.../credential-report.csv" }
+      "credential_report": { "collected": true, "stale_hint": "<freshness note>", "path": "signals/<account>/credential-report.csv" }
     }
   }
 }
@@ -204,10 +204,10 @@ The honest coverage record that feeds the report's Methodology and every coverag
     "regions_queried_by_account": { "111111111111": ["us-east-1", "us-west-2"] },
     "window": { "since": "<iso8601>", "until": "<iso8601>", "clipped_to_90d": false },
     "earliest_event_returned": "<iso8601 | null>",
-    "caps_hit": ["max_hops", "call_budget:222222222222"],
+    "caps_hit": ["max_hops", "call_budget:222222222222", "global_call_budget"],
     "data_event_blind_spots": ["s3:GetObject", "lambda:Invoke", "dynamodb item ops"],
     "signals_unavailable": ["guardduty (view-only permission set)"],
-    "call_counts": { "by_account": { "111111111111": 83 }, "total": 141 }
+    "call_counts": { "by_account": { "111111111111": 83 }, "total": 141, "global_budget": 2000 }
   }
 }
 ```
