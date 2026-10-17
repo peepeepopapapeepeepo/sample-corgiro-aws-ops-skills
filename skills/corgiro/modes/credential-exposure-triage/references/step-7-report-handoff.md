@@ -223,7 +223,7 @@ BODY="\"output\":$OUT"
 # -------------------------------------------------------------------------------
 
 printf '{"envelope":%s,%s}\n' "$ENVELOPE_JSON" "$BODY" > "$TMP"
-python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$TMP" || { echo "drop file is not valid JSON; nothing written" >&2; exit 1; }
+python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$TMP" || { echo "drop file is not valid JSON; nothing written" >&2; exit 1; }   # or: jq -e . "$TMP" >/dev/null
 mv "$TMP" "$OUT_FILE"
 trap - EXIT
 ```
