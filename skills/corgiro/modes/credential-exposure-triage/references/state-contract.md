@@ -38,7 +38,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
 }
 ```
 
-**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the key-based targeted Step 3/4/5 fan-out; a non-`valid` **access-key** subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`. **One exemption (authoritative here as in MODE.md "Key validity gate"):** a subject with `kind: role-session`, non-null `role_arn` and `session_name`, and `key_status: not-observable` **is allowed to run Step 4 only**, by the role-session `Username` lookup (its `target-plan.json` lookup has `lookup_attribute: Username`, value source `subject.session_name`); it runs no Step 3 signal collection and no Step 5 expansion.
+**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the key-based targeted Step 3/4/5 fan-out; a non-`valid` **access-key** subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`. **One exemption (authoritative here as in MODE.md "Key validity gate"):** a subject with `kind: role-session`, non-null `role_arn` and `session_name`, and `key_status: not-observable` **is allowed to run Step 4 only**, by the role-session `Username` lookups (its `target-plan.json` lookup has `lookup_attribute: Username`; it runs two attempts — value source `subject.session_name`, then `subject.principal.name` (the role name) as a fallback, each filtered client-side on the role); it runs no Step 3 signal collection and no Step 5 expansion. Zero kept events from both attempts is `not-observable`, never "no activity".
 
 **Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
 
@@ -69,8 +69,8 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
       "service": "cloudtrail",
       "command": "lookup-events",
       "lookup_attribute": "Username",
-      "value_source": "subject.session_name (role-session subjects only, which have no AccessKeyId fingerprint; never subject.principal.name, which is the role)",
-      "scope": "owning account only, per enabled region, us-east-1 first; this is the subject's PRIMARY lookup (pages tagged search: primary); events are kept client-side only when userIdentity.sessionContext.sessionIssuer.arn == subject.role_arn"
+      "value_source": "role-session subjects only (no AccessKeyId fingerprint): attempt 1 subject.session_name, attempt 2 subject.principal.name (role name) as a fallback — both filtered client-side on the role; never a single value",
+      "scope": "owning account only, per enabled region, us-east-1 first; these are the subject's PRIMARY lookups (pages tagged search: primary). Attempt-1 events are kept when userIdentity.sessionContext.sessionIssuer.arn == subject.role_arn; attempt-2 events are kept additionally only when userIdentity.arn's last /-segment == subject.session_name. Zero kept events from both attempts = not-observable, never 'no activity'"
     }
   ],
   "caps": { "max_hops": 2, "max_sessions": 20, "max_derived_subjects": 10, "call_budget": 200, "global_call_budget": 2000, "max_parallel": 4 },
@@ -125,7 +125,7 @@ Nothing outside the already-approved `accounts` / `regions_by_account` is ever a
 
 ## `timeline/<subject-fingerprint>/<region>[-rn|-un]-pN.json` (Step 4)
 
-One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the **role** of the search that produced the page, not the attribute: none for the subject's **primary** lookup (`AccessKeyId` for key subjects; `Username=<session name>` for a role-session subject, filtered client-side on `sessionIssuer.arn`), `-rn` for the supplemental `ResourceName` search, `-un` for the supplemental `Username=<instance id>` instance-session search (Step 5). `lookup_attribute` records the attribute actually sent.
+One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the **role** of the search that produced the page, not the attribute: none for the subject's **primary** lookup (`AccessKeyId` for key subjects; the two `Username` attempts — `<session name>` then `<role name>` fallback — for a role-session subject, both filtered client-side on the role), `-rn` for the supplemental `ResourceName` search, `-un` for the supplemental `Username=<instance id>` instance-session search (Step 5). `lookup_attribute` records the attribute actually sent.
 
 ```json
 {

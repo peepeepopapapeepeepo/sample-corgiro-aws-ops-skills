@@ -13,13 +13,24 @@ Using the JSON form (or `file://`) means the value is never pasted into shorthan
 
 **Account scope of the primary lookup.** A long-term `AKIA` key's events exist only in its **owning account**, so its primary `AccessKeyId` lookup runs **only in that owning account**, regardless of the `accounts` scope. Hop `ASIA` keys and derived `AKIA` keys are looked up in **their own** accounts. The broader `accounts` scope and the supplemental searches below are the only things that fan across other plan accounts.
 
-**Role-session subject path (`role_arn` + `session_name`).** A role-session subject has **no** access key to look up by `AccessKeyId`. Instead, in the subject's owning account, search by the session name and filter client-side on the role:
+**Role-session subject path (`role_arn` + `session_name`).** A role-session subject has **no** access key to look up by `AccessKeyId`. CloudTrail's `Username` lookup attribute matches "a user name or role name of the requester" ([Event.Username](https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_Event.html)) — the docs do **not** promise that an `AssumedRole` event is retrievable by its session name, and Event history may index it by the **role name** instead. So run **two attempts** in the subject's owning account, both filtered client-side on the role, and combine their results:
+
+- **Attempt 1 — by session name:**
 ```
 aws cloudtrail lookup-events \
   --lookup-attributes "$(printf '[{"AttributeKey":"Username","AttributeValue":"%s"}]' "$VALIDATED_SESSION_NAME")" \
   --start-time <since> --end-time <until> --region <region> --no-paginate
 ```
-`$VALIDATED_SESSION_NAME` is `subjects.json.session_name` (the `session_name` parameter, already validated in Step 1a with `re.fullmatch` body `[A-Za-z0-9][A-Za-z0-9_+=.@-]{1,63}`) — **not** `principal.name`, which holds the role. For `AssumedRole` events, CloudTrail records the issuing role at `userIdentity.sessionContext.sessionIssuer.arn` ([userIdentity element](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)); **keep only events whose `userIdentity.sessionContext.sessionIssuer.arn == subjects.json.role_arn`** (a different role may reuse the same session name). This runs under the Step 2 gate like any lookup. Because it is this subject's **primary** lookup (the only one it has), its pages are tagged `search: "primary"` with `lookup_attribute: "Username"` and written as `<region>-pN.json` — so Step 6e's STILL-ACTIVE test, which reads primary pages, sees them. (`search: "username"` / `-un-` files are reserved for the supplemental instance-session search in Step 5.)
+`$VALIDATED_SESSION_NAME` is `subjects.json.session_name` (validated in Step 1a with `re.fullmatch` body `[A-Za-z0-9][A-Za-z0-9_+=.@-]{1,63}`) — **not** `principal.name`, which holds the role. Keep only events whose `userIdentity.sessionContext.sessionIssuer.arn == subjects.json.role_arn`.
+- **Attempt 2 — by role name (fallback, always run):**
+```
+aws cloudtrail lookup-events \
+  --lookup-attributes "$(printf '[{"AttributeKey":"Username","AttributeValue":"%s"}]' "$VALIDATED_ROLE_NAME")" \
+  --start-time <since> --end-time <until> --region <region> --no-paginate
+```
+`$VALIDATED_ROLE_NAME` is the role name from `subjects.json.principal.name`. From these results keep only events whose `userIdentity.sessionContext.sessionIssuer.arn == subjects.json.role_arn` **and** whose `userIdentity.arn` **last segment** (the text after the final `/` of the assumed-role ARN `…:assumed-role/<role>/<session>`) **equals `subjects.json.session_name`** — so the fallback cannot leak another session of the same role.
+
+Each attempt is a separate counted lookup (both decrement the budget). For `AssumedRole` events CloudTrail records the issuing role at `userIdentity.sessionContext.sessionIssuer.arn` ([userIdentity element](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)). These are this subject's **primary** lookups (the only ones it has), so their kept events are tagged `search: "primary"` with `lookup_attribute: "Username"` and written as `<region>-pN.json` — Step 6e's STILL-ACTIVE test reads primary pages. **Zero kept events from both attempts is recorded as `not-observable`, never "no activity"** (Event history may simply not index this session under either value). (`search: "username"` / `-un-` files are reserved for the supplemental instance-session search in Step 5.)
 
 **Facts (cited):**
 - Valid `LookupAttributeKey` values: `EventId | EventName | ReadOnly | Username | ResourceType | ResourceName | EventSource | AccessKeyId` ([LookupAttribute](https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_LookupAttribute.html)).
