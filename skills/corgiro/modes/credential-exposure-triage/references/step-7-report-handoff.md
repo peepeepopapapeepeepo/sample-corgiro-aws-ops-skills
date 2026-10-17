@@ -65,32 +65,32 @@ Everything in "Not RO-feasible" becomes a handoff task written to `handoff.md` (
 
 ### Per-type substitution regexes (field-specific allowlist)
 
-Every regex is a **full-string match** per the regex-dialect note in MODE.md (`\A…\z` ⇒ `re.fullmatch` in Python / `\A…\z` in PCRE/Ruby/Java; never `^…$`, which can match up to an embedded newline), requires a **first character in `[A-Za-z0-9]`** (a value can never start with `-` and be read as an option), uses **ASCII classes** (`[A-Za-z0-9_]`, not `\w`), and excludes commas and newlines. Generated options use the `--opt=value` (equals-joined) form so a validated value is never parsed as a flag. ARNs are matched by resource-type-specific patterns, never a catch-all tail. IPv6 is validated with a standard IP parser (Python `ipaddress`), not a regex.
+Every regex below is a **`re.fullmatch` body** per the regex-dialect note in MODE.md (Python `re.fullmatch` applies no anchors; PCRE/Ruby/Java users wrap the body in `\A…\z`; never `^…$`, which can match up to an embedded newline), requires a **first character in `[A-Za-z0-9]`** (a value can never start with `-` and be read as an option), uses **ASCII classes** (`[A-Za-z0-9_]`, not `\w`), and excludes commas and newlines. Generated options use the `--opt=value` (equals-joined) form so a validated value is never parsed as a flag. ARNs are matched by resource-type-specific patterns, never a catch-all tail. IPv6 is validated with a standard IP parser (Python `ipaddress`), not a regex.
 
-| Hole type | Regex | Source field |
+| Hole type | `re.fullmatch` body | Source field |
 |---|---|---|
 | access key ID | always `$COMPROMISED_ACCESS_KEY_ID_N` / in-memory map (never a literal, never in handoff output) | n/a |
-| account ID | `\A[0-9]{12}\z` | plan / finding |
-| region | `\A[a-z]{2}(-gov)?-[a-z]+-[0-9]\z` (allows `us-gov-west-1`) | event `awsRegion` |
-| IAM name | `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z` (ASCII, no leading `-`, no comma) | event |
-| instance ID | `\Ai-[0-9a-f]{8,17}\z` | event |
-| bucket name | `\A[a-z0-9][a-z0-9.-]{2,62}\z` | event |
-| function name | `\A[A-Za-z0-9][A-Za-z0-9_-]{0,139}\z` | event |
-| log group | `\A[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}\z` | event |
-| command ID | `\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z` | event |
-| detector ID | `\A[0-9a-f]{32}\z` | `list-detectors` |
-| finding ID | `\A[0-9a-f]{32,64}\z` | `list-findings` |
-| Health event ARN | `\Aarn:aws[a-z-]*:health:[a-z0-9-]*::event/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\z` | finding |
-| GuardDuty finding ID (param) | `\A[0-9a-f]{32,64}\z` | parameter |
-| api-id (API Gateway) | `\A[a-z0-9]{10}\z` | event |
-| role ARN | `\Aarn:aws[a-z-]*:iam::[0-9]{12}:role/[A-Za-z0-9][A-Za-z0-9_+=.@/-]{0,511}\z` (ASCII, no comma) | event |
-| assumed-role ARN (recorded, not substituted) | `\Aarn:aws[a-z-]*:sts::[0-9]{12}:assumed-role/[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}/[A-Za-z0-9*][A-Za-z0-9_+=,.@*-]{0,63}\z` | event `assumedRoleUser.arn` |
-| Lambda function ARN | `\Aarn:aws[a-z-]*:lambda:[a-z0-9-]{1,30}:[0-9]{12}:function:[A-Za-z0-9][A-Za-z0-9_-]{0,139}\z` | event |
-| log-group ARN | `\Aarn:aws[a-z-]*:logs:[a-z0-9-]{1,30}:[0-9]{12}:log-group:[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}:?\*?\z` | event |
-| snapshot ID | `\Asnap-[0-9a-f]{8,17}\z` | event |
-| IPv4 / IPv6 (for Lake/Athena `IN`) | **validate with a standard IP-address parser** (Python `ipaddress.ip_address`), not a regex — this accepts `::`-compressed IPv6 (`2001:db8::1`) and rejects malformed input; reject anything the parser rejects | event `sourceIPAddress` |
-| ISO-8601 timestamp (`since`/`until`, `--start-time`/`--end-time`) | `\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z\|[+-][0-9]{2}:[0-9]{2})\z` | computed window |
-| epoch millis | `\A[0-9]{1,13}\z` | computed window |
+| account ID | `[0-9]{12}` | plan / finding |
+| region | `[a-z]{2}(-gov)?-[a-z]+-[0-9]` (allows `us-gov-west-1`) | event `awsRegion` |
+| IAM name | `[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}` (ASCII, no leading `-`, no comma) | event |
+| instance ID | `i-[0-9a-f]{8,17}` | event |
+| bucket name | `[a-z0-9][a-z0-9.-]{2,62}` | event |
+| function name | `[A-Za-z0-9][A-Za-z0-9_-]{0,139}` | event |
+| log group | `[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}` | event |
+| command ID | `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` | event |
+| detector ID | `[A-Za-z0-9_-]{1,300}` (opaque; AWS publishes only "Length 1-300") | `list-detectors` |
+| finding ID | `[A-Za-z0-9_-]{1,300}` (opaque; AWS publishes only "Length 1-300") | `list-findings` |
+| Health event ARN | `arn:aws[a-z-]*:health:[a-z0-9-]*:[0-9]*:event/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+` (account segment optional — may be empty) | finding |
+| GuardDuty finding ID (param) | `[A-Za-z0-9_-]{1,300}` (opaque; AWS publishes only "Length 1-300") | parameter |
+| api-id (API Gateway) | `[a-z0-9]{10}` | event |
+| role ARN | `arn:aws[a-z-]*:iam::[0-9]{12}:role/[A-Za-z0-9][A-Za-z0-9_+=.@/-]{0,511}` (ASCII, no comma) | event |
+| assumed-role ARN (recorded, not substituted) | `arn:aws[a-z-]*:sts::[0-9]{12}:assumed-role/[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}/[A-Za-z0-9*][A-Za-z0-9_+=,.@*-]{0,63}` | event `assumedRoleUser.arn` |
+| Lambda function ARN | `arn:aws[a-z-]*:lambda:[a-z0-9-]{1,30}:[0-9]{12}:function:[A-Za-z0-9][A-Za-z0-9_-]{0,139}` | event |
+| log-group ARN | `arn:aws[a-z-]*:logs:[a-z0-9-]{1,30}:[0-9]{12}:log-group:[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}:?\*?` | event |
+| snapshot ID | `snap-[0-9a-f]{8,17}` | event |
+| IPv4 / IPv6 (for Lake/Athena `IN`) | **validate with a standard IP-address parser** (Python `ipaddress.ip_address`), not a regex — this accepts `::`-compressed IPv6 (`2001:db8::1`) and rejects malformed input. **Reject any value containing `%`** (an IPv6 zone/scope ID such as `fe80::1%eth0` is never a valid CloudTrail `sourceIPAddress` and must not reach a query), and reject anything else the parser rejects | event `sourceIPAddress` |
+| ISO-8601 timestamp (`since`/`until`, `--start-time`/`--end-time`) | `[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})` | computed window |
+| epoch millis | `[0-9]{1,13}` | computed window |
 
 A value that fails its regex is never substituted — emit the `FINDING` block in place of the command. The `--lookup-attributes` value in Step 3/4 uses JSON/`file://` input (not shorthand), so `,`/`=` in a value can never retarget it; SQL `IN (...)` lists for Lake/Athena are built only from IP-parser-validated IPs (Python `ipaddress`), never from free text.
 
@@ -103,7 +103,7 @@ A value that fails its regex is never substituted — emit the `FINDING` block i
 | Live API Gateway inventory | `["aws","apigatewayv2","get-apis","--region=<region>"]`, `["aws","apigatewayv2","get-routes","--api-id=<api-id>","--region=<region>"]`, `["aws","apigatewayv2","get-integrations","--api-id=<api-id>","--region=<region>"]` | `apigateway:GET` denied |
 | Bucket contents review | `["aws","s3api","list-objects-v2","--bucket=<bucket name>"]` — emitted **only when** the in-mode `list-objects-v2` returned `AccessDenied`. Do **not** emit `get-bucket-versioning` (Step-11 recovery already ran it). Evidence preservation (`["aws","s3","sync","s3://<bucket name>","<admin-supplied path>"]`) is admin-run to an **operator-supplied** destination, never event-derived | `s3:GetObject` denied; listing may be allowed — admin verifies |
 | S3 object-level reads | CloudTrail Lake / Athena template (below), filtered on `userIdentity.accessKeyId` and `requestParameters.bucketName` | object reads are data events; if no data-event trail existed, state "object reads are unknowable" |
-| SSM command content | `["aws","ssm","get-command-invocation","--command-id=<command ID>","--instance-id=<instance ID>"]`, `["aws","ssm","list-command-invocations","--command-id=<command ID>","--details"]` | SendCommand parameters are redacted in CloudTrail; output may still be in SSM (30 days) or the configured output location. Corgiro **declines** this (may contain secrets), it is not "denied" |
+| SSM command content | `["aws","ssm","get-command-invocation","--command-id=<command ID>","--instance-id=<instance ID>"]`, `["aws","ssm","list-command-invocations","--command-id=<command ID>","--details"]` | SendCommand `requestParameters.parameters` may be visible in CloudTrail — AWS warns that plaintext command parameters are logged, so Corgiro drops them before the first write (Step 4); command output may still be in SSM (30 days) or the configured output location. Corgiro **declines** this (may contain secrets), it is not "denied" |
 | Beyond 90 days | CloudTrail Lake `["aws","cloudtrail","start-query","--query-statement=<template>"]`, or Athena on the trail bucket (**billable**) | Event history is 90 days only |
 | Server-side IP search | Lake / Athena filtered on `sourceIPAddress IN (...)` (**billable**) | no server-side IP lookup attribute |
 | Sign-in / assume-role verification | `["aws","sts","assume-role","--role-arn=<role ARN>","--role-session-name=verify"]` run by the **intended** principal (operator-confirmed role only); console sign-in test by the restored user | Corgiro cannot test sign-in/assume read-only |
@@ -155,6 +155,7 @@ Written beside `handoff.md` **and** copied into the original Run Directory as `h
 ```
 
 - `type` and `expected_format` are **enumerations** (values above); an import file whose task declares a value outside them is rejected. The EBS forensics task has type `ec2-describe-snapshot-attribute`.
+- **Type → `expected_format` map (fixed; an import whose `expected_format` disagrees with its `type` is rejected):** `lambda-get-function` → `json`; `apigatewayv2-inventory` → `json`; `s3-list-objects` → `json`; `ssm-command-content` → `json`; `sts-assume-role-verify` → `json`; `support-describe-cases` → `json`; `ec2-describe-snapshot-attribute` → `json`; `ip-geolocation` → `json`; `logs-filter-log-events` → `text`; `lake-athena-query` → `csv`.
 - `commands` is the **canonical ordered array of argv arrays** for the task (one argv array per command; a multi-command task such as API Gateway inventory lists each). This is the single source the operator runs and the single thing hashed.
 - `commands_hash` canonicalization: `sha256` over `json.dumps(commands, sort_keys=True, separators=(",", ":"), ensure_ascii=True)` (UTF-8 bytes), with `<hole>` placeholders left in place — so a template always hashes identically and the hash covers every command of a multi-command task.
 - `resource` is `null` for tasks that have no resource (server-side IP search, `support describe-cases`, IP geolocation).
@@ -165,14 +166,26 @@ Written beside `handoff.md` **and** copied into the original Run Directory as `h
 
 **Digest file (`handoff-manifest.sha256`).** A single line: the lowercase hex `sha256` of the exact bytes of `handoff-manifest.json`, a single space, and the literal filename `handoff-manifest.json` (the `sha256sum` format), with a trailing newline. Written into the original Run Directory (= `import_source_run` on a later import).
 
-**Envelope and the exact writer command.** Each dropped file is a JSON object: the `envelope` plus **either** `output` (a parsed JSON value, for `expected_format: json`) **or** `output_b64` (base64 of the raw bytes, for `csv`/`text`). The operator produces it with one of these exact commands (no secrets added by Corgiro):
+**Envelope and the exact writer command.** Each dropped file is a JSON object: the `envelope` plus **either** `output` (a parsed JSON value, for `expected_format: json`) **or** `output_b64` (base64 of the raw bytes, for `csv`/`text`). The operator produces it with one of these exact commands (no secrets added by Corgiro). Each runs under `set -o pipefail` so a failing `aws` call in the pipeline fails the whole command rather than writing a truncated file, and the base64 is flattened with `tr -d '\n'` so `output_b64` is a single JSON-safe line:
 ```
+set -o pipefail
 # JSON task:
 printf '{"envelope":%s,"output":%s}' "$ENVELOPE_JSON" "$(aws lambda get-function --function-name=<fn> --region=<r>)" > t-...-0001.json
 # CSV/text task:
-printf '{"envelope":%s,"output_b64":"%s"}' "$ENVELOPE_JSON" "$(aws logs filter-log-events --log-group-name=<lg> --region=<r> | base64)" > t-...-0002.json
+printf '{"envelope":%s,"output_b64":"%s"}' "$ENVELOPE_JSON" "$(aws logs filter-log-events --log-group-name=<lg> --region=<r> | base64 | tr -d '\n')" > t-...-0002.json
 ```
 `$ENVELOPE_JSON` is the task's envelope object (below) copied verbatim from `handoff.md`.
+
+**Multi-command tasks assemble into one JSON object.** A task whose `commands` array holds more than one argv (e.g. `apigatewayv2-inventory` → `get-apis`, `get-routes`, `get-integrations`) produces a **single** output object keyed by the per-`type` schema, not one file per command. The operator runs each command and composes the one object under `set -o pipefail`, e.g.:
+```
+set -o pipefail
+APIS="$(aws apigatewayv2 get-apis --region=<r>)"
+ROUTES="$(aws apigatewayv2 get-routes --api-id=<api-id> --region=<r>)"
+INTEG="$(aws apigatewayv2 get-integrations --api-id=<api-id> --region=<r>)"
+printf '{"envelope":%s,"output":{"apis":%s,"routes":%s,"integrations":%s}}' \
+  "$ENVELOPE_JSON" "$APIS" "$ROUTES" "$INTEG" > t-apigw-0001.json
+```
+One `drop_filename` per task regardless of command count; the file's `output` parses against the task's schema as a whole.
 
 ```json
 { "envelope": { "run_id": "...", "task_id": "...", "key_fingerprint": "...", "account": "...", "region": "...", "resource": "...", "format": "json | csv | text", "commands_hash": "..." } }
@@ -182,7 +195,7 @@ printf '{"envelope":%s,"output_b64":"%s"}' "$ENVELOPE_JSON" "$(aws logs filter-l
 
 **Rules Corgiro follows (the import contract):**
 
-- `--import` requires `handoff-manifest.json`. Canonicalize the directory; reject symlinks, non-regular files, path escapes, unlisted files, and size/count excesses; verify run ID, task ID, key fingerprint, account, Region, resource, format, and command-template hash; never execute imported content; parse by task schema; sanitize before reporting; label conclusions `operator-imported`.
+- `--import` requires `handoff-manifest.json`. Canonicalize the directory; reject symlinks, non-regular files, path escapes, unlisted files, and size/count excesses; verify run ID, task ID, key fingerprint, account, Region, resource, format, and `commands_hash`; never execute imported content; parse by task schema; sanitize before reporting; label conclusions `operator-imported`.
 - Imported logs, Lambda/SSM output, and URLs may contain secrets; never embed raw imported content in HTML/Markdown and never follow imported URLs.
 
 **Rules:**

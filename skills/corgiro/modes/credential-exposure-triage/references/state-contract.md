@@ -16,7 +16,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
     {
       "fingerprint": "<64-hex sha256 of the raw key, or a stable id for arn/finding/role-session subjects>",
       "kind": "akia-user-key | asia-session | guardduty-finding | health-event | role-session",
-      "key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+      "key": "<object { masked, sha256 } | null — null for role-session, candidate-rejected, and not-observable subjects>",
       "key_status": "valid | candidate-rejected | not-observable",
       "owning_account": "111111111111",
       "principal": {
@@ -36,7 +36,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
 }
 ```
 
-**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `\A(AKIA|ASIA)[0-9A-Z]{16}\z`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the targeted Step 3/4/5 fan-out; a non-`valid` subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`.
+**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the targeted Step 3/4/5 fan-out; a non-`valid` subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`.
 
 **Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
 
@@ -61,6 +61,14 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
       "lookup_attribute": "AccessKeyId",
       "value_source": "subject.key (masked in plan display)",
       "scope": "per-account per-region, us-east-1 first"
+    },
+    {
+      "step": "4",
+      "service": "cloudtrail",
+      "command": "lookup-events",
+      "lookup_attribute": "Username",
+      "value_source": "subject.principal.name (role-session subjects, which have no AccessKeyId fingerprint)",
+      "scope": "per-account per-region, us-east-1 first; STILL ACTIVE is decided by sessionIssuer.arn + session name, not by this attribute"
     }
   ],
   "caps": { "max_hops": 2, "max_sessions": 20, "max_derived_subjects": 10, "call_budget": 200, "global_call_budget": 2000, "max_parallel": 4 },
@@ -75,7 +83,7 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
 { "depth": 1, "kind": "hop | derived-subject | instance-session",
   "values": [ { "masked": "ASIA****XXXX", "sha256": "<64-hex>" } ],
   "designated_field": "responseElements.credentials.accessKeyId",
-  "regex": "\\AASIA[0-9A-Z]{16}\\z",
+  "regex": "ASIA[0-9A-Z]{16}",
   "accounts": ["222222222222"], "approved_at": "<iso8601>" }
 ```
 
@@ -102,7 +110,7 @@ Nothing outside the already-approved `accounts` / `regions_by_account` is ever a
       "health": {
         "coverage": "subscribed | subscription-required | not-permitted",
         "events": [ { "arn": "<health event arn>", "eventTypeCode": "<code>", "statusCode": "<code>", "startTime": "<iso8601>",
-                      "candidate_key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+                      "candidate_key": "<object { masked, sha256 } | null — null when candidate_key_status is candidate-rejected or not-observable>",
                       "candidate_key_status": "valid | candidate-rejected | not-observable" } ]
       },
       "credential_report": { "collected": true, "stale_hint": "<freshness note>", "path": "signals/<account>/credential-report.csv" }
@@ -240,7 +248,7 @@ The ranked suspect table the operator picks from; also the discovery-path report
 {
   "ranked_suspects": [
     {
-      "key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+      "key": "<object { masked, sha256 } | null — null when key_status is candidate-rejected or not-observable>",
       "key_status": "valid | candidate-rejected | not-observable",
       "owner": "<iam user/role name | null>",
       "account": "111111111111",
@@ -283,4 +291,4 @@ The honest coverage record that feeds the report's Methodology and every coverag
 
 ## `handoff-manifest.json` (Step 7)
 
-Declares what a later `--import <dir>` is allowed to contain. Its schema and the `--import` validation rules live in [`step-7-report-handoff.md`](step-7-report-handoff.md); this file is the contract an import is checked against (run ID, task ID, key fingerprint, account, Region, resource, format, command-template hash).
+Declares what a later `--import <dir>` is allowed to contain. Its schema and the `--import` validation rules live in [`step-7-report-handoff.md`](step-7-report-handoff.md); this file is the contract an import is checked against (run ID, task ID, key fingerprint, account, Region, resource, format, `commands_hash`).
