@@ -39,7 +39,7 @@ aws account list-regions \
 
 **Access-mode caveat.** `account:ListRegions` is **not** granted by the `SecurityAudit` or `ViewOnlyAccess` managed policies ([SecurityAudit reference](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SecurityAudit.html)), so under `identity-center-direct` a mode cannot rely on it — fall back to `defaultRegions` / the mode's `expected_regions`. Under `cross-account-role` it is available where `CorgiroReadOnlyRole` (`ReadOnlyAccess`) permits it. A mode that uses `list-regions` (e.g. `credential-exposure-triage`) documents this fallback rather than failing.
 
-
+## Operator Config File (`~/.corgiro/config.json`)
 
 Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained.
 

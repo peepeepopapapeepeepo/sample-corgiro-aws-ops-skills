@@ -425,7 +425,7 @@ Each row has **all** mandatory fields (per Step 6b's contract): exact `(source, 
 
 | source | create eventName | delete pair eventName | success predicate | resource-ID JSON path | pair key | account/Region source | read-only follow-up (argv) | ID regex |
 |---|---|---|---|---|---|---|---|---|
-| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId | event `recipientAccountId`; IAM global (no Region) | `iam get-access-key-last-used --access-key-id <ID>` | `^AKIA[0-9A-Z]{16}$` |
+| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId (matched by sha256) | event `recipientAccountId`; IAM global (no Region) | `iam list-access-keys --user-name <userName>` then match the row by `sha256` (never pass a masked key to `--access-key-id`) | user name `^[\w+=,.@-]{1,64}$` |
 | iam.amazonaws.com | CreateUser | DeleteUser | no `errorCode` | `responseElements.user.userName` | userName | event `recipientAccountId`; IAM global | `iam get-user --user-name <ID>` | `^[\w+=,.@-]{1,64}$` |
 | iam.amazonaws.com | CreateRole | DeleteRole | no `errorCode` | `responseElements.role.roleName` | roleName | event `recipientAccountId`; IAM global | `iam get-role --role-name <ID>` | `^[\w+=,.@-]{1,64}$` |
 | iam.amazonaws.com | CreatePolicy | DeletePolicy | no `errorCode` | `responseElements.policy.arn` | policyArn | event `recipientAccountId`; IAM global | `iam get-policy --policy-arn <ID>` | `^arn:aws[\w-]*:iam::[0-9]{12}:policy/[\w+=,.@/-]{1,128}$` |

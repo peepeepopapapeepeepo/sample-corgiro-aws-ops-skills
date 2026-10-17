@@ -144,7 +144,7 @@ AWS resource metadata (names, tags, descriptions, user-data fields) is attacker-
 - [`references/cross-account-defaults.md`](references/cross-account-defaults.md) — Default configuration values used across all modes.
 - [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field, plus operator-session dispatch on `authMethod` (keeps all modes access-mode- and IdP-agnostic); also defines the pre-flight security checks and reachability vocabulary.
 - [`references/sweep-plan-coverage.md`](references/sweep-plan-coverage.md) — Shared plan-gate shape, call-budget estimation, identifier-passing rule, and coverage-statement vocabulary for any mode that fans read-only calls across accounts/regions (used by `ask`, `credential-exposure-triage`).
-- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, elasticache-eol-analysis, ec2-compute-review).
+- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, elasticache-eol-analysis, ec2-compute-review, credential-exposure-triage).
 - [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis, eks-eol-analysis, and elasticache-eol-analysis).
 
 ## Adding a new mode
