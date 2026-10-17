@@ -52,7 +52,7 @@ Corgiro reads configuration from TWO files:
    - `ssoSession` — SSO session name, start URL, and region (both modes)
    - `identityCenter.rolePriority` — preferred read-only roles, used to auto-pick a role per account (`identity-center-direct` mode)
    - `identityCenter.profilePrefix` — prefix for per-account CLI profiles (`<profilePrefix><accountId>`, default `corgiro-`)
-   - `crossAccount.toolingAccountId` / `externalId` / `memberRoleName` / `accountFilter` (`cross-account-role` mode)
+   - `crossAccount.toolingAccountId` / `externalId` / `memberRoleName` / `accountFilter` / `delegatedAdminAccountId` (`cross-account-role` mode; `delegatedAdminAccountId` is optional — the GuardDuty/Health delegated-admin account, used by `credential-exposure-triage`)
    - `authMethod` — `identity-center` (default, assumed when absent) or `saml-external`
    - `auth.profile` — the base CLI profile every mode operates from under `cross-account-role`, set on **both** auth methods; `corgiro` when absent
    - `auth.loginCommand` / `auth.operatorRoleArn` (`saml-external` only; `null` under `identity-center`)

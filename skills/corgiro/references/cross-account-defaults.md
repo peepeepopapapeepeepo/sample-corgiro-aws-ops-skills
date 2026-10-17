@@ -22,7 +22,7 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `rosterFreshnessHours` | `24` | Re-fetch roster if older than this |
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
-| `delegatedAdminAccountId` | _(from operator config; optional)_ | Account ID of the organization's delegated administrator for GuardDuty / Health / Security Hub / Config, under `cross-account-role`. Modes that query a delegated-admin API (e.g. `credential-exposure-triage` GuardDuty `list-members`) read this; if unset, the mode asks the operator once or falls back to its per-account path. The Roster does not record this, so it lives here. |
+| `delegatedAdminAccountId` | _(optional; under `crossAccount.*`; `null` when unset)_ | `crossAccount.delegatedAdminAccountId` — account ID of the organization's delegated administrator for GuardDuty / Health / Security Hub / Config, under `cross-account-role`. Modes that query a delegated-admin API (e.g. `credential-exposure-triage` GuardDuty `list-members`) read this; if unset, the mode asks the operator once or falls back to its per-account path. The Roster does not record it. `setup-corgiro` is not changed to prompt for it — it is an optional hand-added field. |
 
 > **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
 
@@ -55,7 +55,8 @@ Written by `setup-corgiro`. The `accessMode` field selects which block is popula
     "toolingAccountId": "123456789012",
     "externalId": "your-external-id-here",
     "memberRoleName": "CorgiroReadOnlyRole",
-    "accountFilter": { "include": [], "exclude": [] }
+    "accountFilter": { "include": [], "exclude": [] },
+    "delegatedAdminAccountId": null
   }
 }
 ```
@@ -81,7 +82,8 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
     "toolingAccountId": "123456789012",
     "externalId": "your-external-id-here",
     "memberRoleName": "CorgiroReadOnlyRole",
-    "accountFilter": { "include": [], "exclude": [] }
+    "accountFilter": { "include": [], "exclude": [] },
+    "delegatedAdminAccountId": null
   }
 }
 ```
