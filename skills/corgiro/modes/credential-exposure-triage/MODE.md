@@ -1,6 +1,6 @@
 ---
 name: credential-exposure-triage
-description: "Triage a potentially compromised AWS credential across every reachable Roster Entry (account) Corgiro can reach. Given a leaked access key, a GuardDuty finding, a Health credential-exposure event, or an assumed-role session, reconstruct what the credential did from CloudTrail, GuardDuty, Health, and IAM — hops through AssumeRole, attacker-created keys, lifecycle of created/deleted resources, locked-out principals, and whether the credential is still active after containment — and produce a read-only incident report plus printed (never executed) containment and human-handoff runbooks. Use when the user mentions a leaked or exposed access key, compromised credentials, a GuardDuty IAM finding, credential incident triage, or an AWS_RISK credential-exposure Health event."
+description: "Triage a potentially compromised AWS credential read-only across every reachable Roster Entry and produce an incident report plus printed (never executed) containment and handoff runbooks. Use when the user mentions a leaked or exposed access key, compromised credentials, a GuardDuty IAM finding, an assumed-role session, credential incident triage, or an AWS_RISK credential-exposure Health event."
 user-invocable: true
 ---
 
