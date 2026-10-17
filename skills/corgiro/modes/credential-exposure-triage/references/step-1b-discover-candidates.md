@@ -6,7 +6,7 @@ When no subject is given, rank suspect credentials from exposure signals, then l
 
 **Signals, cheapest and most certain first:**
 
-### Signal 0 — AWS Health credential-exposure events (always; near-certain; names the key)
+### Signal 0 — AWS Health credential-exposure events (always; near-certain; may identify the key)
 - `aws health describe-event-types --region us-east-1` **unfiltered**, paginated; match `eventTypeCode` **client-side** against `CREDENTIALS`. Never hardcode `AWS_RISK_CREDENTIALS_*` and never pass a `RISK` service filter — the code set changes. Source: [describe-event-types](https://docs.aws.amazon.com/cli/latest/reference/health/describe-event-types.html) (unfiltered returns all event types).
 - Then pull matching events: `describe-events-for-organization` (entitled org) ([ref](https://docs.aws.amazon.com/cli/latest/reference/health/describe-events-for-organization.html)) or per-account `describe-events`. The affected entity is **not** returned by `describe-event-details` (description only — [DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); call `describe-affected-entities --filter '{"eventArns":["<arn>"]}'` ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html)), whose `entities[].entityValue` the API documents only as "the ID of the affected entity". Treat `entityValue` as a **candidate**: use it as the suspect key only if it matches `\A(AKIA|ASIA)[0-9A-Z]{16}\z`; otherwise record the key `not-observable` for that event and require an operator-supplied key before a targeted run. Skip an account on `SubscriptionRequiredException`.
 
