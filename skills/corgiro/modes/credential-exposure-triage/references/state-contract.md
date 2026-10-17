@@ -14,9 +14,10 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
 {
   "subjects": [
     {
-      "fingerprint": "<64-hex sha256 of the raw key, or a stable id for arn/finding subjects>",
+      "fingerprint": "<64-hex sha256 of the raw key, or a stable id for arn/finding/role-session subjects>",
       "kind": "akia-user-key | asia-session | guardduty-finding | health-event | role-session",
       "key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+      "key_status": "valid | candidate-rejected | not-observable",
       "owning_account": "111111111111",
       "principal": {
         "type": "IAMUser | AssumedRole | Root | FederatedUser | Unknown",
@@ -34,6 +35,8 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
   ]
 }
 ```
+
+**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `\A(AKIA|ASIA)[0-9A-Z]{16}\z`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the targeted Step 3/4/5 fan-out; a non-`valid` subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`.
 
 **Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
 
@@ -98,7 +101,9 @@ Nothing outside the already-approved `accounts` / `regions_by_account` is ever a
       },
       "health": {
         "coverage": "subscribed | subscription-required | not-permitted",
-        "events": [ { "arn": "<health event arn>", "eventTypeCode": "<code>", "statusCode": "<code>", "startTime": "<iso8601>" } ]
+        "events": [ { "arn": "<health event arn>", "eventTypeCode": "<code>", "statusCode": "<code>", "startTime": "<iso8601>",
+                      "candidate_key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+                      "candidate_key_status": "valid | candidate-rejected | not-observable" } ]
       },
       "credential_report": { "collected": true, "stale_hint": "<freshness note>", "path": "signals/<account>/credential-report.csv" }
     }
@@ -236,6 +241,7 @@ The ranked suspect table the operator picks from; also the discovery-path report
   "ranked_suspects": [
     {
       "key": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" },
+      "key_status": "valid | candidate-rejected | not-observable",
       "owner": "<iam user/role name | null>",
       "account": "111111111111",
       "signals_fired": ["signal-0-health", "signal-1-guardduty", "signal-2-credential-report", "signal-3-sample"],
@@ -266,7 +272,10 @@ The honest coverage record that feeds the report's Methodology and every coverag
     "data_event_blind_spots": ["s3:GetObject", "lambda:Invoke", "dynamodb item ops"],
     "signals_unavailable": ["guardduty (view-only permission set)"],
     "call_counts": { "by_account": { "111111111111": 83 }, "total": 141, "global_budget": 2000 }
-  }
+  },
+  "audit_records": [
+    { "eventSource": "s3.amazonaws.com", "eventName": "PutBucketVersioning", "eventId": "<uuid>", "account": "111111111111", "note": "versioning Status=Enabled — benign config change, not a finding" }
+  ]
 }
 ```
 

@@ -135,8 +135,7 @@ Source: [Secrets Manager API reference](https://docs.aws.amazon.com/secretsmanag
 
 | source | eventName | bucket | predicate |
 |---|---|---|---|
-| secretsmanager.amazonaws.com | GetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
-| secretsmanager.amazonaws.com | BatchGetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
+| secretsmanager.amazonaws.com | GetSecretValue | CredentialAccess | always (member role denies; attempts still log. A `BatchGetSecretValue` call is recorded by CloudTrail as a `GetSecretValue` entry per requested secret — AWS does not emit a distinct `BatchGetSecretValue` event name, so there is no separate classifier row) |
 | secretsmanager.amazonaws.com | PutSecretValue | Impact | always |
 | secretsmanager.amazonaws.com | DeleteSecret | Impact | always |
 
@@ -169,7 +168,7 @@ Source: [Logging S3 API calls with CloudTrail](https://docs.aws.amazon.com/Amazo
 | s3.amazonaws.com | PutBucketLifecycle | Impact | always (expiry = destruction) |
 | s3.amazonaws.com | PutBucketEncryption | Impact | always |
 | s3.amazonaws.com | PutBucketVersioning | DefenseEvasion | `requestParameters.VersioningConfiguration.Status=Suspended` (disables recovery) |
-| s3.amazonaws.com | PutBucketVersioning | Discovery | `requestParameters.VersioningConfiguration.Status=Enabled` (enabling versioning is not an attack by itself; recorded as a benign config change, not DefenseEvasion) |
+| s3.amazonaws.com | PutBucketVersioning | _(unclassified audit record — not a finding)_ | `requestParameters.VersioningConfiguration.Status=Enabled` (enabling versioning is not an attack; record it as an audit entry, never a Discovery/Medium finding) |
 
 ## RDS (`rds.amazonaws.com`)
 Source: [Amazon RDS API reference](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_Operations.html).
@@ -426,19 +425,19 @@ Each row has **all** mandatory fields (per Step 6b's contract): exact `(source, 
 
 | source | create eventName | delete pair eventName | success predicate | resource-ID JSON path | pair key | account/Region source | read-only follow-up (argv, equals-joined) | ID regex |
 |---|---|---|---|---|---|---|---|---|
-| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId (matched by sha256) | event `recipientAccountId`; IAM global (no Region) | `iam list-access-keys --user-name=<userName>` then match the row by `sha256` (never pass a masked key to `--access-key-id`) | user name `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
-| iam.amazonaws.com | CreateUser | DeleteUser | no `errorCode` | `responseElements.user.userName` | userName | event `recipientAccountId`; IAM global | `iam get-user --user-name=<ID>` | `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
-| iam.amazonaws.com | CreateRole | DeleteRole | no `errorCode` | `responseElements.role.roleName` | roleName | event `recipientAccountId`; IAM global | `iam get-role --role-name=<ID>` | `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
-| iam.amazonaws.com | CreatePolicy | DeletePolicy | no `errorCode` | `responseElements.policy.arn` | policyArn | event `recipientAccountId`; IAM global | `iam get-policy --policy-arn=<ID>` | `\Aarn:aws[a-z-]*:iam::[0-9]{12}:policy/[A-Za-z0-9][\w+=,.@/-]{0,127}\z` |
+| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId (matched by sha256) | event `recipientAccountId`; IAM global (no Region) | `iam list-access-keys --user-name=<userName>` then match the row by `sha256` (never pass a masked key to `--access-key-id`) | user name `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreateUser | DeleteUser | no `errorCode` | `responseElements.user.userName` | userName | event `recipientAccountId`; IAM global | `iam get-user --user-name=<ID>` | `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreateRole | DeleteRole | no `errorCode` | `responseElements.role.roleName` | roleName | event `recipientAccountId`; IAM global | `iam get-role --role-name=<ID>` | `\A[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreatePolicy | DeletePolicy | no `errorCode` | `responseElements.policy.arn` | policyArn | event `recipientAccountId`; IAM global | `iam get-policy --policy-arn=<ID>` | `\Aarn:aws[a-z-]*:iam::[0-9]{12}:policy/[A-Za-z0-9][A-Za-z0-9_+=,.@/-]{0,127}\z` |
 | kms.amazonaws.com | CreateKey | ScheduleKeyDeletion | no `errorCode` | `responseElements.keyMetadata.keyId` | keyId | event `recipientAccountId` + `awsRegion` | `kms describe-key --key-id=<ID>` (DeletionDate, cancel-before) | `\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z` |
 | ec2.amazonaws.com | CreateSnapshot | DeleteSnapshot | no `errorCode` | `responseElements.snapshotId` | snapshotId | event `recipientAccountId` + `awsRegion` | `ec2 describe-snapshots --owner-ids=self --snapshot-ids=<ID>` then `ec2 describe-snapshot-attribute --attribute=createVolumePermission --snapshot-id=<ID>` | `\Asnap-[0-9a-f]{8,17}\z` |
 | ec2.amazonaws.com | AssociateIamInstanceProfile | DisassociateIamInstanceProfile | no `errorCode` | `requestParameters.associateIamInstanceProfileRequest.instanceId` | instanceId | event `recipientAccountId` + `awsRegion` | `ec2 describe-iam-instance-profile-associations --filters=Name=instance-id,Values=<ID>` | `\Ai-[0-9a-f]{8,17}\z` |
-| rds.amazonaws.com | StartExportTask | (no delete pair; one-shot export) | no `errorCode` | `responseElements.exportTaskIdentifier` | exportTaskIdentifier | event `recipientAccountId` + `awsRegion` | `rds describe-export-tasks --export-task-identifier=<ID>` | `\A[A-Za-z0-9][\w-]{0,254}\z` |
+| rds.amazonaws.com | StartExportTask | (no delete pair; one-shot export) | no `errorCode` | `responseElements.exportTaskIdentifier` | exportTaskIdentifier | event `recipientAccountId` + `awsRegion` | `rds describe-export-tasks --export-task-identifier=<ID>` | `\A[A-Za-z0-9][A-Za-z0-9_-]{0,254}\z` |
 | ssm.amazonaws.com | SendCommand | (no delete pair; command lifecycle) | no `errorCode` | `responseElements.command.commandId` | commandId | event `recipientAccountId` + `awsRegion` | `ssm list-commands --command-id=<ID>` (metadata only; never get-command-invocation) | `\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z` |
-| lambda.amazonaws.com | CreateFunction20150331 | DeleteFunction20150331 | no `errorCode` | `requestParameters.functionName` | functionName | event `recipientAccountId` + `awsRegion` | `lambda list-functions` then `lambda get-policy --function-name=<ID>` (GetFunction denied) | `\A[A-Za-z0-9][\w-]{0,139}\z` |
-| logs.amazonaws.com | CreateLogGroup | DeleteLogGroup | no `errorCode` | `requestParameters.logGroupName` | logGroupName | event `recipientAccountId` + `awsRegion` | `logs describe-log-streams --log-group-name=<ID>` (timestamps only; FilterLogEvents/GetLogEvents denied) | `\A[A-Za-z0-9][\w./#-]{0,511}\z` |
-| cloudformation.amazonaws.com | CreateStack | DeleteStack | no `errorCode` | `requestParameters.stackName` | stackName | event `recipientAccountId` + `awsRegion` | `cloudformation describe-stacks --stack-name=<ID>` (single stack; org-wide StackSet health not observable from a member/tooling session) | `\A[A-Za-z0-9][\w-]{0,127}\z` |
-| cloudtrail.amazonaws.com | PutEventSelectors | (config change; no delete pair) | no `errorCode` | `requestParameters.trailName` | trailName | event `recipientAccountId` + `awsRegion` | `cloudtrail get-event-selectors --trail-name=<ID>` (does any trail log S3 data events?) | `\A[A-Za-z0-9][\w._-]{2,127}\z` |
+| lambda.amazonaws.com | CreateFunction20150331 | DeleteFunction20150331 | no `errorCode` | `requestParameters.functionName` | functionName | event `recipientAccountId` + `awsRegion` | `lambda list-functions` then `lambda get-policy --function-name=<ID>` (GetFunction denied) | `\A[A-Za-z0-9][A-Za-z0-9_-]{0,139}\z` |
+| logs.amazonaws.com | CreateLogGroup | DeleteLogGroup | no `errorCode` | `requestParameters.logGroupName` | logGroupName | event `recipientAccountId` + `awsRegion` | `logs describe-log-streams --log-group-name=<ID>` (timestamps only; FilterLogEvents/GetLogEvents denied) | `\A[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}\z` |
+| cloudformation.amazonaws.com | CreateStack | DeleteStack | no `errorCode` | `requestParameters.stackName` | stackName | event `recipientAccountId` + `awsRegion` | `cloudformation describe-stacks --stack-name=<ID>` (single stack; org-wide StackSet health not observable from a member/tooling session) | `\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\z` |
+| cloudtrail.amazonaws.com | PutEventSelectors | (config change; no delete pair) | no `errorCode` | `requestParameters.trailName` | trailName | event `recipientAccountId` + `awsRegion` | `cloudtrail get-event-selectors --trail-name=<ID>` (does any trail log S3 data events?) | `\A[A-Za-z0-9][A-Za-z0-9_._-]{2,127}\z` |
 
 ## Signal-3 high-signal EventNames (~20; discovery path only)
 Rare, high-signal mutations to sample one page each per named account/region pair (Step 1b Signal 3). All are exact classifier tuples above:
