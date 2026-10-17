@@ -54,7 +54,7 @@ The handoff command templates, the `handoff-manifest.json` schema, and the `--im
 
 ## `--verify` run
 
-When `--verify` is set, re-run all subjects with `--contained-at` and print a **verification checklist** (numbered freshly for this run) with live state where read-only: users/roles/policies gone, no new events after containment, no activity from attacker IPs in fetched events, quarantine still attached. Sign-in and assume-role tests cannot be done read-only — they are handoff tasks. Report which handoff outputs were imported.
+When `--verify` is set, re-run all subjects with `--contained-at` and print a **verification checklist** (numbered freshly for this run) with live state where read-only: users/roles/policies gone, no new events after containment, no activity from attacker IPs in fetched events, quarantine still attached. For a role whose sessions were revoked (Step 0 branch B), **verify the revoke cutoff actually covers the attacker**: confirm the newest observed attacker session's issue time (`responseElements.credentials.expiration` minus the session duration, or the `AssumeRole` event time) is **earlier than** the `AWSRevokeOlderSessions` `aws:TokenIssueTime` cutoff — a policy that merely exists but with a stale cutoff does not contain a session re-minted later. Sign-in and assume-role tests cannot be done read-only — they are handoff tasks. Report which handoff outputs were imported.
 
 **Output:** `Credential-Exposure-Triage-<DATE>.{md,html}`, plus `handoff.md` and `handoff-manifest.json` (next section).
 
