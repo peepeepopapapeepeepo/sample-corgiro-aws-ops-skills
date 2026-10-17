@@ -2,7 +2,7 @@
 
 The authoritative mapping from a CloudTrail `(eventSource, eventName)` tuple to **exactly one** tactic bucket, used by Step 6a. **Classification is by exact tuple only — no prefix matching, no wildcards.** The exact event-catalog tuple takes precedence over `readOnly`; an event matched to no tuple but carrying `readOnly=true` is generic `Discovery`.
 
-**Table contract (enforced).** Every classifier row below has: one full `*.amazonaws.com` `eventSource`, one exact `eventName`, one deterministic `bucket`, and an explicit `predicate` that is either `always` or a concrete condition on request/response fields. When one API can land in two buckets depending on its fields, it appears as **two rows with mutually-exclusive predicates** — never one row with two buckets. `findings.json` carries one bucket per finding (`state-contract.md`), so the classifier must resolve to one.
+**Table contract (enforced).** Every classifier row below is **row-local and self-contained**: it carries its own full `source` (`*.amazonaws.com`) column, one exact `eventName`, one deterministic `bucket`, and an explicit `predicate` (either `always` or a concrete condition on request/response fields). A parser matches `(source, eventName)` from the row alone — it never has to read a section heading. When one API can land in two buckets depending on its fields, it appears as **two rows with mutually-exclusive predicates** — never one row with two buckets. `findings.json` carries one bucket per finding (`state-contract.md`), so the classifier must resolve to one. The per-section heading repeats the source for readers; the authority is the row's `source` cell.
 
 **Citations.** The cited source is the service's CloudTrail-logging page or API reference. CloudTrail `eventName` equals the public API action **except** where a service records a versioned name; every versioned name in this table is verified against the service's CloudTrail page and written in full (e.g. Lambda). Names that could not be verified to an exact CloudTrail string are **not** in the classifier — they are listed separately under "Unverified candidates (not used by the classifier)".
 
@@ -11,392 +11,393 @@ The authoritative mapping from a CloudTrail `(eventSource, eventName)` tuple to 
 ## IAM (`iam.amazonaws.com`)
 Source: [Logging IAM and AWS STS API calls with CloudTrail](https://docs.aws.amazon.com/IAM/latest/UserGuide/cloudtrail-integration.html); action names per [IAM API reference](https://docs.aws.amazon.com/IAM/latest/APIReference/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateUser | Persistence | always |
-| CreateRole | Persistence | always |
-| CreateInstanceProfile | Persistence | always |
-| AddRoleToInstanceProfile | PrivilegeEscalation | always |
-| CreateAccessKey | Persistence | always (derived subject, Step 5) |
-| CreateLoginProfile | Persistence | always |
-| UpdateLoginProfile | Persistence | always |
-| DeleteLoginProfile | DefenseEvasion | always |
-| DeleteUser | DefenseEvasion | always |
-| DeleteRole | DefenseEvasion | always |
-| CreateVirtualMFADevice | Persistence | always |
-| EnableMFADevice | Persistence | always |
-| DeactivateMFADevice | DefenseEvasion | always |
-| AttachUserPolicy | PrivilegeEscalation | always |
-| AttachRolePolicy | PrivilegeEscalation | always |
-| AttachGroupPolicy | PrivilegeEscalation | always |
-| PutUserPolicy | PrivilegeEscalation | always |
-| PutRolePolicy | PrivilegeEscalation | always |
-| PutGroupPolicy | PrivilegeEscalation | always |
-| AddUserToGroup | PrivilegeEscalation | always |
-| DetachUserPolicy | DefenseEvasion | always (target `AWSCompromisedKeyQuarantine*` ⇒ containment-defeating, 6g) |
-| DetachRolePolicy | DefenseEvasion | always (target `AWSCompromisedKeyQuarantine*` ⇒ containment-defeating, 6g) |
-| DeleteUserPolicy | DefenseEvasion | always |
-| CreatePolicy | PrivilegeEscalation | always |
-| CreatePolicyVersion | PrivilegeEscalation | always |
-| SetDefaultPolicyVersion | PrivilegeEscalation | always |
-| UpdateAssumeRolePolicy | PrivilegeEscalation | always |
-| CreateSAMLProvider | Persistence | always |
-| CreateOpenIDConnectProvider | Persistence | always |
-| UploadSSHPublicKey | Persistence | always |
-| CreateServiceSpecificCredential | Persistence | always |
-| UpdateAccessKey | DefenseEvasion | always (`requestParameters.status=Active` ⇒ reactivation, containment-defeating, 6g) |
-| DeleteAccessKey | DefenseEvasion | always |
-| UpdateAccountPasswordPolicy | DefenseEvasion | always (containment-defeating, 6g) |
-| DeleteAccountPasswordPolicy | DefenseEvasion | always (containment-defeating, 6g) |
-| GenerateCredentialReport | Discovery | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| iam.amazonaws.com | CreateUser | Persistence | always |
+| iam.amazonaws.com | CreateRole | Persistence | always |
+| iam.amazonaws.com | CreateInstanceProfile | Persistence | always |
+| iam.amazonaws.com | AddRoleToInstanceProfile | PrivilegeEscalation | always |
+| iam.amazonaws.com | CreateAccessKey | Persistence | always (derived subject, Step 5) |
+| iam.amazonaws.com | CreateLoginProfile | Persistence | always |
+| iam.amazonaws.com | UpdateLoginProfile | Persistence | always |
+| iam.amazonaws.com | DeleteLoginProfile | DefenseEvasion | always |
+| iam.amazonaws.com | DeleteUser | DefenseEvasion | always |
+| iam.amazonaws.com | DeleteRole | DefenseEvasion | always |
+| iam.amazonaws.com | CreateVirtualMFADevice | Persistence | always |
+| iam.amazonaws.com | EnableMFADevice | Persistence | always |
+| iam.amazonaws.com | DeactivateMFADevice | DefenseEvasion | always |
+| iam.amazonaws.com | AttachUserPolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | AttachRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | AttachGroupPolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | PutUserPolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | PutRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | PutGroupPolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | AddUserToGroup | PrivilegeEscalation | always |
+| iam.amazonaws.com | DetachUserPolicy | DefenseEvasion | always (target `AWSCompromisedKeyQuarantine*` ⇒ containment-defeating, 6g) |
+| iam.amazonaws.com | DetachRolePolicy | DefenseEvasion | always (target `AWSCompromisedKeyQuarantine*` ⇒ containment-defeating, 6g) |
+| iam.amazonaws.com | DeleteUserPolicy | DefenseEvasion | always |
+| iam.amazonaws.com | CreatePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | CreatePolicyVersion | PrivilegeEscalation | always |
+| iam.amazonaws.com | SetDefaultPolicyVersion | PrivilegeEscalation | always |
+| iam.amazonaws.com | UpdateAssumeRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | CreateSAMLProvider | Persistence | always |
+| iam.amazonaws.com | CreateOpenIDConnectProvider | Persistence | always |
+| iam.amazonaws.com | UploadSSHPublicKey | Persistence | always |
+| iam.amazonaws.com | CreateServiceSpecificCredential | Persistence | always |
+| iam.amazonaws.com | UpdateAccessKey | DefenseEvasion | always (`requestParameters.status=Active` ⇒ reactivation, containment-defeating, 6g) |
+| iam.amazonaws.com | DeleteAccessKey | DefenseEvasion | always |
+| iam.amazonaws.com | UpdateAccountPasswordPolicy | DefenseEvasion | always (containment-defeating, 6g) |
+| iam.amazonaws.com | DeleteAccountPasswordPolicy | DefenseEvasion | always (containment-defeating, 6g) |
+| iam.amazonaws.com | GenerateCredentialReport | Discovery | always |
 
 ## STS (`sts.amazonaws.com`)
 Source: [Logging IAM and AWS STS API calls with CloudTrail](https://docs.aws.amazon.com/IAM/latest/UserGuide/cloudtrail-integration.html); [STS API reference](https://docs.aws.amazon.com/STS/latest/APIReference/welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| AssumeRole | InitialAccess | always (hop; `responseElements.credentials.accessKeyId` = ASIA) |
-| GetFederationToken | InitialAccess | always (Step 0 branch C) |
-| GetSessionToken | InitialAccess | always (Step 0 branch C) |
-| GetCallerIdentity | Discovery | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| sts.amazonaws.com | AssumeRole | InitialAccess | always (hop; `responseElements.credentials.accessKeyId` = ASIA) |
+| sts.amazonaws.com | GetFederationToken | InitialAccess | always (Step 0 branch C) |
+| sts.amazonaws.com | GetSessionToken | InitialAccess | always (Step 0 branch C) |
+| sts.amazonaws.com | GetCallerIdentity | Discovery | always |
 
 ## Sign-in (`signin.amazonaws.com`)
 Source: [Logging IAM and AWS STS API calls with CloudTrail](https://docs.aws.amazon.com/IAM/latest/UserGuide/cloudtrail-integration.html) (`signin.amazonaws.com/ConsoleLogin`).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| ConsoleLogin | InitialAccess | always (`additionalEventData.MFAUsed=No` raises confidence; `userIdentity.type=Root` ⇒ root runbook, 6e/6f) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| signin.amazonaws.com | ConsoleLogin | InitialAccess | always (`additionalEventData.MFAUsed=No` raises confidence; `userIdentity.type=Root` ⇒ root runbook, 6e/6f) |
 
 ## EC2 (`ec2.amazonaws.com`)
 Source: [Amazon EC2 API reference](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/OperationList-query-api.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| RunInstances | PrivilegeEscalation | `requestParameters.iamInstanceProfile` present |
-| RunInstances | ResourceAbuse | `requestParameters.iamInstanceProfile` absent |
-| RequestSpotInstances | ResourceAbuse | always |
-| CreateFleet | ResourceAbuse | always |
-| StopInstances | Impact | always |
-| TerminateInstances | Impact | always |
-| CreateVolume | Impact | always |
-| AttachVolume | Impact | always |
-| DetachVolume | Impact | always |
-| DeleteVolume | Impact | always |
-| CreateSnapshot | Persistence | always (lifecycle-paired in 6b; sharing is a later ModifySnapshotAttribute) |
-| DeleteSnapshot | Impact | always |
-| ModifySnapshotAttribute | Exfiltration | `requestParameters.createVolumePermission.add` present |
-| ModifySnapshotAttribute | DefenseEvasion | `requestParameters.createVolumePermission.add` absent |
-| ModifyImageAttribute | Exfiltration | `requestParameters.launchPermission.add` present |
-| DeregisterImage | Impact | always |
-| CreateKeyPair | Persistence | always |
-| ImportKeyPair | Persistence | always |
-| DeleteKeyPair | Impact | always |
-| CreateSecurityGroup | DefenseEvasion | always |
-| DeleteSecurityGroup | DefenseEvasion | always |
-| AuthorizeSecurityGroupIngress | InitialAccess | always |
-| ModifyInstanceAttribute | DefenseEvasion | always |
-| AssociateIamInstanceProfile | PrivilegeEscalation | always |
-| GetPasswordData | CredentialAccess | always |
-| GetConsoleOutput | CredentialAccess | always (member role denies) |
-| GetConsoleScreenshot | CredentialAccess | always (member role denies) |
-| DeleteFlowLogs | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ec2.amazonaws.com | RunInstances | PrivilegeEscalation | `requestParameters.iamInstanceProfile` present |
+| ec2.amazonaws.com | RunInstances | ResourceAbuse | `requestParameters.iamInstanceProfile` absent |
+| ec2.amazonaws.com | RequestSpotInstances | ResourceAbuse | always |
+| ec2.amazonaws.com | CreateFleet | ResourceAbuse | always |
+| ec2.amazonaws.com | StopInstances | Impact | always |
+| ec2.amazonaws.com | TerminateInstances | Impact | always |
+| ec2.amazonaws.com | CreateVolume | Impact | always |
+| ec2.amazonaws.com | AttachVolume | Impact | always |
+| ec2.amazonaws.com | DetachVolume | Impact | always |
+| ec2.amazonaws.com | DeleteVolume | Impact | always |
+| ec2.amazonaws.com | CreateSnapshot | Persistence | always (lifecycle-paired in 6b; sharing is a later ModifySnapshotAttribute) |
+| ec2.amazonaws.com | DeleteSnapshot | Impact | always |
+| ec2.amazonaws.com | ModifySnapshotAttribute | Exfiltration | `requestParameters.createVolumePermission.add` present |
+| ec2.amazonaws.com | ModifySnapshotAttribute | DefenseEvasion | `requestParameters.createVolumePermission.add` absent |
+| ec2.amazonaws.com | ModifyImageAttribute | Exfiltration | `requestParameters.launchPermission.add` present |
+| ec2.amazonaws.com | DeregisterImage | Impact | always |
+| ec2.amazonaws.com | CreateKeyPair | Persistence | always |
+| ec2.amazonaws.com | ImportKeyPair | Persistence | always |
+| ec2.amazonaws.com | DeleteKeyPair | Impact | always |
+| ec2.amazonaws.com | CreateSecurityGroup | DefenseEvasion | always |
+| ec2.amazonaws.com | DeleteSecurityGroup | DefenseEvasion | always |
+| ec2.amazonaws.com | AuthorizeSecurityGroupIngress | InitialAccess | always |
+| ec2.amazonaws.com | ModifyInstanceAttribute | DefenseEvasion | always |
+| ec2.amazonaws.com | AssociateIamInstanceProfile | PrivilegeEscalation | always |
+| ec2.amazonaws.com | GetPasswordData | CredentialAccess | always |
+| ec2.amazonaws.com | GetConsoleOutput | CredentialAccess | always (member role denies) |
+| ec2.amazonaws.com | GetConsoleScreenshot | CredentialAccess | always (member role denies) |
+| ec2.amazonaws.com | DeleteFlowLogs | DefenseEvasion | always |
 
 > `CreateAutoScalingGroup` is `autoscaling.amazonaws.com`, not `ec2.amazonaws.com` — see Auto Scaling below.
 
 ## Auto Scaling (`autoscaling.amazonaws.com`)
 Source: [Amazon EC2 Auto Scaling API reference](https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateAutoScalingGroup | ResourceAbuse | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| autoscaling.amazonaws.com | CreateAutoScalingGroup | ResourceAbuse | always |
 
 ## EC2 Instance Connect (`ec2-instance-connect.amazonaws.com`)
 Source: [EC2 Instance Connect API reference](https://docs.aws.amazon.com/ec2-instance-connect/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| SendSSHPublicKey | InitialAccess | always (triggers instance-session review, Step 5) |
-| SendSerialConsoleSSHPublicKey | InitialAccess | always |
-| OpenTunnel | InitialAccess | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ec2-instance-connect.amazonaws.com | SendSSHPublicKey | InitialAccess | always (triggers instance-session review, Step 5) |
+| ec2-instance-connect.amazonaws.com | SendSerialConsoleSSHPublicKey | InitialAccess | always |
+| ec2-instance-connect.amazonaws.com | OpenTunnel | InitialAccess | always |
 
 ## SSM (`ssm.amazonaws.com`)
 Source: [AWS Systems Manager API reference](https://docs.aws.amazon.com/systems-manager/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| SendCommand | Impact | always (parameters redacted in CloudTrail; content via handoff) |
-| StartSession | InitialAccess | always |
-| GetParameter | CredentialAccess | always (member role denies) |
-| GetParameters | CredentialAccess | always (member role denies) |
-| GetParametersByPath | CredentialAccess | always (member role denies) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ssm.amazonaws.com | SendCommand | Impact | always (parameters redacted in CloudTrail; content via handoff) |
+| ssm.amazonaws.com | StartSession | InitialAccess | always |
+| ssm.amazonaws.com | GetParameter | CredentialAccess | always (member role denies) |
+| ssm.amazonaws.com | GetParameters | CredentialAccess | always (member role denies) |
+| ssm.amazonaws.com | GetParametersByPath | CredentialAccess | always (member role denies) |
 
 ## Secrets Manager (`secretsmanager.amazonaws.com`)
 Source: [Secrets Manager API reference](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| GetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
-| BatchGetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
-| PutSecretValue | Impact | always |
-| DeleteSecret | Impact | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| secretsmanager.amazonaws.com | GetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
+| secretsmanager.amazonaws.com | BatchGetSecretValue | CredentialAccess | always (member role denies; attempts still log) |
+| secretsmanager.amazonaws.com | PutSecretValue | Impact | always |
+| secretsmanager.amazonaws.com | DeleteSecret | Impact | always |
 
 ## KMS (`kms.amazonaws.com`)
 Source: [AWS KMS API reference](https://docs.aws.amazon.com/kms/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| Decrypt | CredentialAccess | always (member role denies; attempts log) |
-| ScheduleKeyDeletion | Impact | always |
-| DeleteImportedKeyMaterial | Impact | always |
-| CancelKeyDeletion | DefenseEvasion | always |
-| DisableKey | Impact | always |
-| CreateKey | Persistence | always |
-| CreateAlias | Persistence | always |
-| DeleteAlias | DefenseEvasion | always |
-| PutKeyPolicy | PrivilegeEscalation | always (can grant external principals) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| kms.amazonaws.com | Decrypt | CredentialAccess | always (member role denies; attempts log) |
+| kms.amazonaws.com | ScheduleKeyDeletion | Impact | always |
+| kms.amazonaws.com | DeleteImportedKeyMaterial | Impact | always |
+| kms.amazonaws.com | CancelKeyDeletion | DefenseEvasion | always |
+| kms.amazonaws.com | DisableKey | Impact | always |
+| kms.amazonaws.com | CreateKey | Persistence | always |
+| kms.amazonaws.com | CreateAlias | Persistence | always |
+| kms.amazonaws.com | DeleteAlias | DefenseEvasion | always |
+| kms.amazonaws.com | PutKeyPolicy | PrivilegeEscalation | always (can grant external principals) |
 
 ## S3 (`s3.amazonaws.com`)
 Source: [Logging S3 API calls with CloudTrail](https://docs.aws.amazon.com/AmazonS3/latest/userguide/cloudtrail-logging.html) (management events only; object reads are **data events** — see NOT-events).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateBucket | ResourceAbuse | always |
-| DeleteBucket | Impact | always |
-| PutBucketPolicy | Exfiltration | always (can expose data to external principals) |
-| PutBucketAcl | Exfiltration | always |
-| PutAccountPublicAccessBlock | DefenseEvasion | always |
-| PutBucketReplication | Exfiltration | always |
-| PutBucketLifecycle | Impact | always (expiry = destruction) |
-| PutBucketEncryption | Impact | always |
-| PutBucketVersioning | DefenseEvasion | always (`requestParameters.VersioningConfiguration.Status=Suspended` ⇒ disabling recovery) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| s3.amazonaws.com | CreateBucket | ResourceAbuse | always |
+| s3.amazonaws.com | DeleteBucket | Impact | always |
+| s3.amazonaws.com | PutBucketPolicy | Exfiltration | always (can expose data to external principals) |
+| s3.amazonaws.com | PutBucketAcl | Exfiltration | always |
+| s3.amazonaws.com | PutAccountPublicAccessBlock | DefenseEvasion | always |
+| s3.amazonaws.com | PutBucketReplication | Exfiltration | always |
+| s3.amazonaws.com | PutBucketLifecycle | Impact | always (expiry = destruction) |
+| s3.amazonaws.com | PutBucketEncryption | Impact | always |
+| s3.amazonaws.com | PutBucketVersioning | DefenseEvasion | `requestParameters.VersioningConfiguration.Status=Suspended` (disables recovery) |
+| s3.amazonaws.com | PutBucketVersioning | Discovery | `requestParameters.VersioningConfiguration.Status=Enabled` (enabling versioning is not an attack by itself; recorded as a benign config change, not DefenseEvasion) |
 
 ## RDS (`rds.amazonaws.com`)
 Source: [Amazon RDS API reference](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateDBSnapshot | Persistence | always (lifecycle-paired; sharing is a later ModifyDBSnapshotAttribute) |
-| ModifyDBSnapshotAttribute | Exfiltration | `requestParameters.valuesToAdd` contains `all` or an external account |
-| ModifyDBClusterSnapshotAttribute | Exfiltration | `requestParameters.valuesToAdd` contains `all` or an external account |
-| DeleteDBSnapshot | Impact | always |
-| RestoreDBInstanceFromDBSnapshot | Exfiltration | always |
-| StartExportTask | Exfiltration | always |
-| DeleteDBInstance | Impact | always |
-| DeleteDBCluster | Impact | always |
-| DeleteDBSubnetGroup | Impact | always |
-| ModifyDBInstance | DefenseEvasion | `requestParameters.publiclyAccessible=true` |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| rds.amazonaws.com | CreateDBSnapshot | Persistence | always (lifecycle-paired; sharing is a later ModifyDBSnapshotAttribute) |
+| rds.amazonaws.com | ModifyDBSnapshotAttribute | Exfiltration | `requestParameters.valuesToAdd` contains `all` or an external account |
+| rds.amazonaws.com | ModifyDBClusterSnapshotAttribute | Exfiltration | `requestParameters.valuesToAdd` contains `all` or an external account |
+| rds.amazonaws.com | DeleteDBSnapshot | Impact | always |
+| rds.amazonaws.com | RestoreDBInstanceFromDBSnapshot | Exfiltration | always |
+| rds.amazonaws.com | StartExportTask | Exfiltration | always |
+| rds.amazonaws.com | DeleteDBInstance | Impact | always |
+| rds.amazonaws.com | DeleteDBCluster | Impact | always |
+| rds.amazonaws.com | DeleteDBSubnetGroup | Impact | always |
+| rds.amazonaws.com | ModifyDBInstance | DefenseEvasion | `requestParameters.publiclyAccessible=true` |
 
 ## DynamoDB (`dynamodb.amazonaws.com`)
 Source: [DynamoDB API reference](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DeleteTable | Impact | always (item ops are data events — NOT-events) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| dynamodb.amazonaws.com | DeleteTable | Impact | always (item ops are data events — NOT-events) |
 
 ## Backup (`backup.amazonaws.com`)
 Source: [AWS Backup API reference](https://docs.aws.amazon.com/aws-backup/latest/devguide/api-reference.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DeleteRecoveryPoint | Impact | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| backup.amazonaws.com | DeleteRecoveryPoint | Impact | always |
 
 ## Lambda (`lambda.amazonaws.com`)
 Source: [Logging Lambda API calls using CloudTrail](https://docs.aws.amazon.com/lambda/latest/dg/with-cloudtrail.html). CloudTrail records **versioned** event names; every name below is the exact CloudTrail `eventName` from that page (verified).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateFunction20150331 | Persistence | always |
-| UpdateFunctionCode20150331v2 | Persistence | always (code swap) |
-| AddPermission20150331v2 | PrivilegeEscalation | always (resource-policy grant) |
-| GetFunction20150331v2 | CredentialAccess | always (returns env vars; member role denies GetFunction) |
-| CreateEventSourceMapping20150331 | Persistence | always (trigger wiring) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| lambda.amazonaws.com | CreateFunction20150331 | Persistence | always |
+| lambda.amazonaws.com | UpdateFunctionCode20150331v2 | Persistence | always (code swap) |
+| lambda.amazonaws.com | AddPermission20150331v2 | PrivilegeEscalation | always (resource-policy grant) |
+| lambda.amazonaws.com | GetFunction20150331v2 | CredentialAccess | always (returns env vars; member role denies GetFunction) |
+| lambda.amazonaws.com | CreateEventSourceMapping20150331 | Persistence | always (trigger wiring) |
 
 ## EventBridge (`events.amazonaws.com`)
 Source: [EventBridge API reference](https://docs.aws.amazon.com/eventbridge/latest/APIReference/Welcome.html). **eventSource trap:** `events.amazonaws.com` is EventBridge.
 
-| eventName | bucket | predicate |
-|---|---|---|
-| PutRule | Persistence | always |
-| PutTargets | Persistence | always |
-| DisableRule | DefenseEvasion | always |
-| RemoveTargets | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| events.amazonaws.com | PutRule | Persistence | always |
+| events.amazonaws.com | PutTargets | Persistence | always |
+| events.amazonaws.com | DisableRule | DefenseEvasion | always |
+| events.amazonaws.com | RemoveTargets | DefenseEvasion | always |
 
 ## CloudTrail (`cloudtrail.amazonaws.com`)
 Source: [CloudTrail API reference](https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/Welcome.html). Disabling logging does **not** erase Event history itself.
 
-| eventName | bucket | predicate |
-|---|---|---|
-| StopLogging | DefenseEvasion | always |
-| DeleteTrail | DefenseEvasion | always |
-| UpdateTrail | DefenseEvasion | always |
-| PutEventSelectors | DefenseEvasion | always |
-| DeleteEventDataStore | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| cloudtrail.amazonaws.com | StopLogging | DefenseEvasion | always |
+| cloudtrail.amazonaws.com | DeleteTrail | DefenseEvasion | always |
+| cloudtrail.amazonaws.com | UpdateTrail | DefenseEvasion | always |
+| cloudtrail.amazonaws.com | PutEventSelectors | DefenseEvasion | always |
+| cloudtrail.amazonaws.com | DeleteEventDataStore | DefenseEvasion | always |
 
 ## GuardDuty (`guardduty.amazonaws.com`)
 Source: [GuardDuty API reference](https://docs.aws.amazon.com/guardduty/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DeleteDetector | DefenseEvasion | always |
-| UpdateDetector | DefenseEvasion | always |
-| ArchiveFindings | DefenseEvasion | always |
-| DisassociateFromAdministratorAccount | DefenseEvasion | always |
-| CreateIPSet | DefenseEvasion | always (allowlisting attacker IPs) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| guardduty.amazonaws.com | DeleteDetector | DefenseEvasion | always |
+| guardduty.amazonaws.com | UpdateDetector | DefenseEvasion | always |
+| guardduty.amazonaws.com | ArchiveFindings | DefenseEvasion | always |
+| guardduty.amazonaws.com | DisassociateFromAdministratorAccount | DefenseEvasion | always |
+| guardduty.amazonaws.com | CreateIPSet | DefenseEvasion | always (allowlisting attacker IPs) |
 
 ## Config (`config.amazonaws.com`)
 Source: [AWS Config API reference](https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| StopConfigurationRecorder | DefenseEvasion | always |
-| DeleteConfigurationRecorder | DefenseEvasion | always |
-| DeleteDeliveryChannel | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| config.amazonaws.com | StopConfigurationRecorder | DefenseEvasion | always |
+| config.amazonaws.com | DeleteConfigurationRecorder | DefenseEvasion | always |
+| config.amazonaws.com | DeleteDeliveryChannel | DefenseEvasion | always |
 
 ## Security Hub (`securityhub.amazonaws.com`)
 Source: [Security Hub API reference](https://docs.aws.amazon.com/securityhub/1.0/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DisableSecurityHub | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| securityhub.amazonaws.com | DisableSecurityHub | DefenseEvasion | always |
 
 ## CloudWatch (`monitoring.amazonaws.com`)
 Source: [CloudWatch API reference](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/Welcome.html). **eventSource trap:** CloudWatch alarms are `monitoring.amazonaws.com`.
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DisableAlarmActions | DefenseEvasion | always |
-| DeleteAlarms | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| monitoring.amazonaws.com | DisableAlarmActions | DefenseEvasion | always |
+| monitoring.amazonaws.com | DeleteAlarms | DefenseEvasion | always |
 
 ## CloudWatch Logs (`logs.amazonaws.com`)
 Source: [CloudWatch Logs API reference](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/Welcome.html). **eventSource trap:** Logs are `logs.amazonaws.com`.
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DeleteLogGroup | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| logs.amazonaws.com | DeleteLogGroup | DefenseEvasion | always |
 
 ## Bedrock (`bedrock.amazonaws.com`)
 Source: [Logging Bedrock API calls with CloudTrail](https://docs.aws.amazon.com/bedrock/latest/userguide/logging-using-cloudtrail.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| InvokeModel | ResourceAbuse | always (LLMjacking) |
-| InvokeModelWithResponseStream | ResourceAbuse | always |
-| Converse | ResourceAbuse | always |
-| ConverseStream | ResourceAbuse | always |
-| PutFoundationModelEntitlement | ResourceAbuse | always |
-| CreateFoundationModelAgreement | ResourceAbuse | always |
-| DeleteModelInvocationLoggingConfiguration | DefenseEvasion | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| bedrock.amazonaws.com | InvokeModel | ResourceAbuse | always (LLMjacking) |
+| bedrock.amazonaws.com | InvokeModelWithResponseStream | ResourceAbuse | always |
+| bedrock.amazonaws.com | Converse | ResourceAbuse | always |
+| bedrock.amazonaws.com | ConverseStream | ResourceAbuse | always |
+| bedrock.amazonaws.com | PutFoundationModelEntitlement | ResourceAbuse | always |
+| bedrock.amazonaws.com | CreateFoundationModelAgreement | ResourceAbuse | always |
+| bedrock.amazonaws.com | DeleteModelInvocationLoggingConfiguration | DefenseEvasion | always |
 
 ## SQS (`sqs.amazonaws.com`)
 Source: [SQS API reference](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| PurgeQueue | Impact | always |
-| DeleteQueue | Impact | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| sqs.amazonaws.com | PurgeQueue | Impact | always |
+| sqs.amazonaws.com | DeleteQueue | Impact | always |
 
 ## SNS (`sns.amazonaws.com`)
 Source: [SNS API reference](https://docs.aws.amazon.com/sns/latest/api/welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| DeleteTopic | Impact | always |
-| GetSMSAttributes | Discovery | always (SMS-pumping recon) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| sns.amazonaws.com | DeleteTopic | Impact | always |
+| sns.amazonaws.com | GetSMSAttributes | Discovery | always (SMS-pumping recon) |
 
 ## SES v2 (`ses.amazonaws.com`)
 Source: [SES v2 API reference](https://docs.aws.amazon.com/ses/latest/APIReference-V2/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| VerifyEmailIdentity | Persistence | always (phishing-sender setup) |
-| GetSendQuota | Discovery | always (spam-capacity recon) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ses.amazonaws.com | VerifyEmailIdentity | Persistence | always (phishing-sender setup) |
+| ses.amazonaws.com | GetSendQuota | Discovery | always (spam-capacity recon) |
 
 ## ECR (`ecr.amazonaws.com`)
 Source: [ECR API reference](https://docs.aws.amazon.com/AmazonECR/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| GetAuthorizationToken | CredentialAccess | always (registry creds) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ecr.amazonaws.com | GetAuthorizationToken | CredentialAccess | always (registry creds) |
 
 ## ECS (`ecs.amazonaws.com`)
 Source: [ECS API reference](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| RunTask | ResourceAbuse | always |
-| CreateService | ResourceAbuse | always |
-| RegisterTaskDefinition | PrivilegeEscalation | `requestParameters.taskRoleArn` present |
-| RegisterTaskDefinition | ResourceAbuse | `requestParameters.taskRoleArn` absent |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ecs.amazonaws.com | RunTask | ResourceAbuse | always |
+| ecs.amazonaws.com | CreateService | ResourceAbuse | always |
+| ecs.amazonaws.com | RegisterTaskDefinition | PrivilegeEscalation | `requestParameters.taskRoleArn` present |
+| ecs.amazonaws.com | RegisterTaskDefinition | ResourceAbuse | `requestParameters.taskRoleArn` absent |
 
 ## EKS (`eks.amazonaws.com`)
 Source: [EKS API reference](https://docs.aws.amazon.com/eks/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateCluster | ResourceAbuse | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| eks.amazonaws.com | CreateCluster | ResourceAbuse | always |
 
 ## Batch (`batch.amazonaws.com`)
 Source: [AWS Batch API reference](https://docs.aws.amazon.com/batch/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| SubmitJob | ResourceAbuse | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| batch.amazonaws.com | SubmitJob | ResourceAbuse | always |
 
 ## CodeBuild (`codebuild.amazonaws.com`)
 Source: [CodeBuild API reference](https://docs.aws.amazon.com/codebuild/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateProject | PrivilegeEscalation | always (build role abuse) |
-| StartBuild | ResourceAbuse | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| codebuild.amazonaws.com | CreateProject | PrivilegeEscalation | always (build role abuse) |
+| codebuild.amazonaws.com | StartBuild | ResourceAbuse | always |
 
 ## Glue (`glue.amazonaws.com`)
 Source: [AWS Glue API reference](https://docs.aws.amazon.com/glue/latest/webapi/API_Operations.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateJob | PrivilegeEscalation | always (job role abuse) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| glue.amazonaws.com | CreateJob | PrivilegeEscalation | always (job role abuse) |
 
 ## CloudFormation (`cloudformation.amazonaws.com`)
 Source: [CloudFormation API reference](https://docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateStack | PrivilegeEscalation | `requestParameters.roleARN` present |
-| CreateStack | ResourceAbuse | `requestParameters.roleARN` absent |
-| DeleteStack | Impact | always |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| cloudformation.amazonaws.com | CreateStack | PrivilegeEscalation | `requestParameters.roleARN` present |
+| cloudformation.amazonaws.com | CreateStack | ResourceAbuse | `requestParameters.roleARN` absent |
+| cloudformation.amazonaws.com | DeleteStack | Impact | always |
 
 ## Route 53 (`route53.amazonaws.com`)
 Source: [Route 53 API reference](https://docs.aws.amazon.com/Route53/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| ChangeResourceRecordSets | Impact | always (DNS hijack / redirect) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| route53.amazonaws.com | ChangeResourceRecordSets | Impact | always (DNS hijack / redirect) |
 
 ## RAM (`ram.amazonaws.com`)
 Source: [RAM API reference](https://docs.aws.amazon.com/ram/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| CreateResourceShare | Exfiltration | always (share resources to attacker account) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| ram.amazonaws.com | CreateResourceShare | Exfiltration | always (share resources to attacker account) |
 
 ## Organizations (`organizations.amazonaws.com`)
 Source: [Organizations API reference](https://docs.aws.amazon.com/organizations/latest/APIReference/Welcome.html).
 
-| eventName | bucket | predicate |
-|---|---|---|
-| LeaveOrganization | Impact | always |
-| CreateAccount | ResourceAbuse | always |
-| InviteAccountToOrganization | Persistence | always |
-| AcceptHandshake | Persistence | always |
-| DetachPolicy | DefenseEvasion | always (SCP removal) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| organizations.amazonaws.com | LeaveOrganization | Impact | always |
+| organizations.amazonaws.com | CreateAccount | ResourceAbuse | always |
+| organizations.amazonaws.com | InviteAccountToOrganization | Persistence | always |
+| organizations.amazonaws.com | AcceptHandshake | Persistence | always |
+| organizations.amazonaws.com | DetachPolicy | DefenseEvasion | always (SCP removal) |
 
 ## Account Management (`account.amazonaws.com`)
 Source: [Account Management API reference](https://docs.aws.amazon.com/accounts/latest/reference/welcome.html). **eventSource trap:** the Account service is `account.amazonaws.com`.
 
-| eventName | bucket | predicate |
-|---|---|---|
-| EnableRegion | ResourceAbuse | always (opt-in region for mining) |
+| source | eventName | bucket | predicate |
+|---|---|---|---|
+| account.amazonaws.com | EnableRegion | ResourceAbuse | always (opt-in region for mining) |
 
 ## NOT-events (never list these as management activity)
 - `PassRole` — a **permission**, not an API event; classify escalation via the role fields on `RunInstances` / `ecs:RegisterTaskDefinition` / `CreateStack` (predicates above), not by looking for a `PassRole` event.
@@ -421,23 +422,23 @@ These were considered but their exact CloudTrail `(eventSource, eventName)` stri
 - Account Management `PutContactInformation` / `PutAlternateContact` — exact CloudTrail names unverified. Candidate bucket: Impact (contact hijack).
 
 ## Static lifecycle follow-up table (Step 6b / 6c; read-only; ID-only substitution)
-Each row has **all** mandatory fields (per Step 6b's contract): exact `(source, create eventName)`; the `delete pair eventName` whose matching resource ID closes the lifecycle; the success predicate; the resource-ID JSON path; the **pair key** (the field whose equality pairs create/delete); the account/Region source; the read-only follow-up argv template (ID-only substitution); and the ID regex validated before substitution. A row missing any field prohibits pairing and follow-up.
+Each row has **all** mandatory fields (per Step 6b's contract): exact `(source, create eventName)`; the `delete pair eventName` whose matching resource ID closes the lifecycle; the success predicate; the resource-ID JSON path; the **pair key** (the field whose equality pairs create/delete); the account/Region source; the read-only follow-up argv (ID-only substitution, **equals-joined options** so a validated value can never be read as a flag); and the ID regex validated before substitution. Every ID regex is full-string (`\A…\z`), first char alphanumeric, and excludes commas and newlines. A row missing any field prohibits pairing and follow-up.
 
-| source | create eventName | delete pair eventName | success predicate | resource-ID JSON path | pair key | account/Region source | read-only follow-up (argv) | ID regex |
+| source | create eventName | delete pair eventName | success predicate | resource-ID JSON path | pair key | account/Region source | read-only follow-up (argv, equals-joined) | ID regex |
 |---|---|---|---|---|---|---|---|---|
-| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId (matched by sha256) | event `recipientAccountId`; IAM global (no Region) | `iam list-access-keys --user-name <userName>` then match the row by `sha256` (never pass a masked key to `--access-key-id`) | user name `^[\w+=,.@-]{1,64}$` |
-| iam.amazonaws.com | CreateUser | DeleteUser | no `errorCode` | `responseElements.user.userName` | userName | event `recipientAccountId`; IAM global | `iam get-user --user-name <ID>` | `^[\w+=,.@-]{1,64}$` |
-| iam.amazonaws.com | CreateRole | DeleteRole | no `errorCode` | `responseElements.role.roleName` | roleName | event `recipientAccountId`; IAM global | `iam get-role --role-name <ID>` | `^[\w+=,.@-]{1,64}$` |
-| iam.amazonaws.com | CreatePolicy | DeletePolicy | no `errorCode` | `responseElements.policy.arn` | policyArn | event `recipientAccountId`; IAM global | `iam get-policy --policy-arn <ID>` | `^arn:aws[\w-]*:iam::[0-9]{12}:policy/[\w+=,.@/-]{1,128}$` |
-| kms.amazonaws.com | CreateKey | ScheduleKeyDeletion | no `errorCode` | `responseElements.keyMetadata.keyId` | keyId | event `recipientAccountId` + `awsRegion` | `kms describe-key --key-id <ID>` (DeletionDate, cancel-before) | `^[0-9a-f-]{36}$` |
-| ec2.amazonaws.com | CreateSnapshot | DeleteSnapshot | no `errorCode` | `responseElements.snapshotId` | snapshotId | event `recipientAccountId` + `awsRegion` | `ec2 describe-snapshots --owner-ids self --snapshot-ids <ID>` then `describe-snapshot-attribute --attribute createVolumePermission --snapshot-id <ID>` | `^snap-[0-9a-f]{8,17}$` |
-| ec2.amazonaws.com | AssociateIamInstanceProfile | DisassociateIamInstanceProfile | no `errorCode` | `requestParameters.associateIamInstanceProfileRequest.instanceId` | instanceId | event `recipientAccountId` + `awsRegion` | `ec2 describe-iam-instance-profile-associations --filters Name=instance-id,Values=<ID>` | `^i-[0-9a-f]{8,17}$` |
-| rds.amazonaws.com | StartExportTask | (no delete pair; one-shot export) | no `errorCode` | `responseElements.exportTaskIdentifier` | exportTaskIdentifier | event `recipientAccountId` + `awsRegion` | `rds describe-export-tasks --export-task-identifier <ID>` | `^[\w-]{1,255}$` |
-| ssm.amazonaws.com | SendCommand | (no delete pair; command lifecycle) | no `errorCode` | `responseElements.command.commandId` | commandId | event `recipientAccountId` + `awsRegion` | `ssm list-commands --command-id <ID>` (metadata only; never get-command-invocation) | `^[0-9a-f-]{36}$` |
-| lambda.amazonaws.com | CreateFunction20150331 | DeleteFunction20150331 | no `errorCode` | `requestParameters.functionName` | functionName | event `recipientAccountId` + `awsRegion` | `lambda list-functions` then `lambda get-policy --function-name <ID>` (GetFunction denied) | `^[\w-]{1,140}$` |
-| logs.amazonaws.com | CreateLogGroup | DeleteLogGroup | no `errorCode` | `requestParameters.logGroupName` | logGroupName | event `recipientAccountId` + `awsRegion` | `logs describe-log-streams --log-group-name <ID>` (timestamps only; FilterLogEvents/GetLogEvents denied) | `^[\w./#-]{1,512}$` |
-| cloudformation.amazonaws.com | CreateStack | DeleteStack | no `errorCode` | `requestParameters.stackName` | stackName | event `recipientAccountId` + `awsRegion` | `cloudformation describe-stacks --stack-name <ID>` (StackSet enumeration needs delegated-admin authority; else not observable) | `^[\w-]{1,128}$` |
-| cloudtrail.amazonaws.com | PutEventSelectors | (config change; no delete pair) | no `errorCode` | `requestParameters.trailName` | trailName | event `recipientAccountId` + `awsRegion` | `cloudtrail get-event-selectors --trail-name <ID>` (does any trail log S3 data events?) | `^[\w._-]{3,128}$` |
+| iam.amazonaws.com | CreateAccessKey | DeleteAccessKey | no `errorCode` | `responseElements.accessKey.accessKeyId` | accessKeyId (matched by sha256) | event `recipientAccountId`; IAM global (no Region) | `iam list-access-keys --user-name=<userName>` then match the row by `sha256` (never pass a masked key to `--access-key-id`) | user name `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreateUser | DeleteUser | no `errorCode` | `responseElements.user.userName` | userName | event `recipientAccountId`; IAM global | `iam get-user --user-name=<ID>` | `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreateRole | DeleteRole | no `errorCode` | `responseElements.role.roleName` | roleName | event `recipientAccountId`; IAM global | `iam get-role --role-name=<ID>` | `\A[A-Za-z0-9][\w+=.@-]{0,63}\z` |
+| iam.amazonaws.com | CreatePolicy | DeletePolicy | no `errorCode` | `responseElements.policy.arn` | policyArn | event `recipientAccountId`; IAM global | `iam get-policy --policy-arn=<ID>` | `\Aarn:aws[a-z-]*:iam::[0-9]{12}:policy/[A-Za-z0-9][\w+=,.@/-]{0,127}\z` |
+| kms.amazonaws.com | CreateKey | ScheduleKeyDeletion | no `errorCode` | `responseElements.keyMetadata.keyId` | keyId | event `recipientAccountId` + `awsRegion` | `kms describe-key --key-id=<ID>` (DeletionDate, cancel-before) | `\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z` |
+| ec2.amazonaws.com | CreateSnapshot | DeleteSnapshot | no `errorCode` | `responseElements.snapshotId` | snapshotId | event `recipientAccountId` + `awsRegion` | `ec2 describe-snapshots --owner-ids=self --snapshot-ids=<ID>` then `ec2 describe-snapshot-attribute --attribute=createVolumePermission --snapshot-id=<ID>` | `\Asnap-[0-9a-f]{8,17}\z` |
+| ec2.amazonaws.com | AssociateIamInstanceProfile | DisassociateIamInstanceProfile | no `errorCode` | `requestParameters.associateIamInstanceProfileRequest.instanceId` | instanceId | event `recipientAccountId` + `awsRegion` | `ec2 describe-iam-instance-profile-associations --filters=Name=instance-id,Values=<ID>` | `\Ai-[0-9a-f]{8,17}\z` |
+| rds.amazonaws.com | StartExportTask | (no delete pair; one-shot export) | no `errorCode` | `responseElements.exportTaskIdentifier` | exportTaskIdentifier | event `recipientAccountId` + `awsRegion` | `rds describe-export-tasks --export-task-identifier=<ID>` | `\A[A-Za-z0-9][\w-]{0,254}\z` |
+| ssm.amazonaws.com | SendCommand | (no delete pair; command lifecycle) | no `errorCode` | `responseElements.command.commandId` | commandId | event `recipientAccountId` + `awsRegion` | `ssm list-commands --command-id=<ID>` (metadata only; never get-command-invocation) | `\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z` |
+| lambda.amazonaws.com | CreateFunction20150331 | DeleteFunction20150331 | no `errorCode` | `requestParameters.functionName` | functionName | event `recipientAccountId` + `awsRegion` | `lambda list-functions` then `lambda get-policy --function-name=<ID>` (GetFunction denied) | `\A[A-Za-z0-9][\w-]{0,139}\z` |
+| logs.amazonaws.com | CreateLogGroup | DeleteLogGroup | no `errorCode` | `requestParameters.logGroupName` | logGroupName | event `recipientAccountId` + `awsRegion` | `logs describe-log-streams --log-group-name=<ID>` (timestamps only; FilterLogEvents/GetLogEvents denied) | `\A[A-Za-z0-9][\w./#-]{0,511}\z` |
+| cloudformation.amazonaws.com | CreateStack | DeleteStack | no `errorCode` | `requestParameters.stackName` | stackName | event `recipientAccountId` + `awsRegion` | `cloudformation describe-stacks --stack-name=<ID>` (single stack; org-wide StackSet health not observable from a member/tooling session) | `\A[A-Za-z0-9][\w-]{0,127}\z` |
+| cloudtrail.amazonaws.com | PutEventSelectors | (config change; no delete pair) | no `errorCode` | `requestParameters.trailName` | trailName | event `recipientAccountId` + `awsRegion` | `cloudtrail get-event-selectors --trail-name=<ID>` (does any trail log S3 data events?) | `\A[A-Za-z0-9][\w._-]{2,127}\z` |
 
 ## Signal-3 high-signal EventNames (~20; discovery path only)
 Rare, high-signal mutations to sample one page each per named account/region pair (Step 1b Signal 3). All are exact classifier tuples above:
