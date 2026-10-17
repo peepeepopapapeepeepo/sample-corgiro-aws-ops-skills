@@ -20,7 +20,7 @@ Present the plan gate in the shape defined by [`../../../references/sweep-plan-c
 
 **Expansion is a new gate.** Any expansion — a hop, a derived subject, a new account, a wider window — is a new expansion gate appended to `target-plan.json.expansions[]`, never a silent continuation. A hop or derived subject may only add lookup **values** inside already-approved accounts/regions, from a designated field, regex-validated, and listed in the gate before use (the validated-designated-identifier pattern reused from [`ask/MODE.md`](../../ask/MODE.md)). **Batch same-depth pivots into one deduplicated expansion gate; never gate or recurse one event at a time.** Nothing found in API output adds an account, region, or command beyond the plan.
 
-**Manual pagination.** All lookups use `--no-paginate` with manual `NextToken`/`Marker` so one loop iteration = one counted call; CLI auto-pagination hides call counts and silently invalidates the budget.
+**Manual pagination.** All lookups use `--no-paginate` with manual `NextToken`/`Marker` so one loop iteration = one counted call; CLI auto-pagination hides call counts and silently invalidates the budget. The token is passed back with the service's own request parameter (`--next-token` / `--marker`), never with the CLI's `--starting-token`, which the CLI rejects alongside `--no-paginate` — see "Which pagination options to use" in [`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md).
 
 **Hard stops:**
 - No fan-out before explicit approval; edits re-render the gate.

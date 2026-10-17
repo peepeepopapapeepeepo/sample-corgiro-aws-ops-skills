@@ -28,19 +28,22 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 
 ## Region discovery (`account list-regions`)
 
-When a mode needs the set of regions actually enabled for an account (rather than a static `defaultRegions` list), discover them with the Account Management API. `ListRegions` is **paginated** (`MaxResults` 1-50, default unstated), so **loop on `NextToken`** rather than relying on `--no-paginate`, which can return a partial Region list:
+When a mode needs the set of regions actually enabled for an account (rather than a static `defaultRegions` list), discover them with the Account Management API. `ListRegions` is **paginated** (`MaxResults` 1-50; response `NextToken` when more Regions remain — [ListRegions API](https://docs.aws.amazon.com/accounts/latest/reference/API_ListRegions.html)). A mode that counts calls needs **both** `--no-paginate` (so one CLI invocation is exactly one service request — without it the CLI auto-paginates and hides the request count) **and** a manual loop on the returned `NextToken` (so the Region list is complete). Decrement the mode's budget counters before each iteration:
 
 ```bash
 NEXT=""
 while :; do
-  OUT="$(aws account list-regions \
+  # <decrement call_budget (this account) and global_call_budget here, before the request>
+  OUT="$(aws account list-regions --no-paginate \
     --region-opt-status-contains ENABLED ENABLED_BY_DEFAULT \
-    --max-results 50 ${NEXT:+--next-token "$NEXT"})"
+    --max-results=50 ${NEXT:+--next-token="$NEXT"})" || break
   # accumulate OUT.Regions[] ...
   NEXT="$(printf '%s' "$OUT" | jq -r '.NextToken // empty')"
   [ -z "$NEXT" ] && break
 done
 ```
+
+**Which pagination options to use.** `--max-results` and `--next-token` are the API's own `MaxResults` / `NextToken` request parameters; the API reference says the response `NextToken` "should be passed into the `next-token` request parameter of `list-regions`" ([ListRegions API](https://docs.aws.amazon.com/accounts/latest/reference/API_ListRegions.html)). The CLI reference page for the command lists instead the CLI's client-side pagination options `--starting-token` / `--page-size` / `--max-items` ([list-regions](https://docs.aws.amazon.com/cli/latest/reference/account/list-regions.html)); those drive the CLI's **automatic** pagination and the CLI rejects them when combined with `--no-paginate` (`Cannot specify --no-paginate along with pagination arguments`), so they cannot implement a counted loop ([CLI pagination](https://docs.aws.amazon.com/cli/latest/userguide/cli-usage-pagination.html)). Passing an API request parameter such as `--next-token` is accepted by the CLI even though the reference page does not list it (the pagination options shadow it in the page, not in the parser); verified against AWS CLI 2.x. The same rule applies to every manual `NextToken` / `Marker` loop in Corgiro: `--no-paginate` plus the service's own token parameter.
 
 `list-regions` returns every Region and its opt-in status; filtering on `ENABLED`/`ENABLED_BY_DEFAULT` yields the account's active footprint. Source: [list-regions](https://docs.aws.amazon.com/cli/latest/reference/account/list-regions.html). With `--account-id` it can target a member account, but only from the organization's management or a delegated-administrator account ([list-regions](https://docs.aws.amazon.com/cli/latest/reference/account/list-regions.html)).
 
