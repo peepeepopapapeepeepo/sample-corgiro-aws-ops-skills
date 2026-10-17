@@ -13,9 +13,9 @@
 
 ## For a GuardDuty-finding or Health-event subject: resolve first
 
-With `guardduty_finding_id` (+ account + region) or `health_event_arn`, print a generic banner, then make **exactly one** resolve call to fill it in, then reprint:
+With `guardduty_finding_id` (+ account + region) or `health_event_arn`, print a generic banner, then make the resolve call(s) to fill it in, then reprint:
 - `aws guardduty get-findings --detector-id <id> --finding-ids <finding-id> --region <region>` — carries the access key, principal, first/last seen, actor IP, and API. Resource type for IAM findings is `AccessKey` ([GuardDuty compromised-credentials](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-creds.html)).
-- `aws health describe-event-details --event-arns <arn> --region us-east-1` — the credential-exposure event names the affected key.
+- For a Health event, **two** calls: `aws health describe-event-details --event-arns <arn> --region us-east-1` returns the event **description** but NOT the affected entities ([DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); the affected key comes from `aws health describe-affected-entities --filter '{"eventArns":["<arn>"]}' --region us-east-1`, whose `entities[].entityValue` carries the affected resource (the access key ID for a credential-exposure event) ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html)). Validate `entityValue` against `^(AKIA|ASIA)[0-9A-Z]{16}$` before using it as the subject key.
 
 These are read-only and count against the budget; they are the one exception to "print before any call".
 
@@ -24,7 +24,7 @@ These are read-only and count against the budget; they are the one exception to 
 Because identity is not yet known, print every branch whose prefix is consistent with the subject, flagged "applies if the key resolves to …":
 
 ### A. The subject resolves to an IAM user long-lived key (`AKIA…`)
-Deactivate the key — do not delete it first (deletion erases the key's last-used data and the user's policies, destroying evidence):
+Deactivate the key — do not delete it first (deleting the key removes its last-used data, and the point of containment is to neutralize the key while preserving evidence; see [delete-access-key](https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteAccessKey.html)):
 ```
 # not executed by Corgiro — run under your own authority
 aws iam update-access-key --access-key-id "$COMPROMISED_ACCESS_KEY_ID" \
@@ -53,5 +53,5 @@ Separate root runbook: sign in as root, delete the root access keys, and enable/
 
 ## Common lines (print always)
 - If `AWSCompromisedKeyQuarantineV2` or `AWSCompromisedKeyQuarantineV3` is already attached to the principal, AWS has already detected the exposure and opened a Support case — **do not detach it until rotation completes** ([V2](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSCompromisedKeyQuarantineV2.html), [V3](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSCompromisedKeyQuarantineV3.html)). Step 1 flags whether it is attached.
-- **Do not delete the user, role, or key until Step 1 evidence is captured** — deletion erases policies and last-used data the triage depends on.
+- **Do not delete the user, role, or key until Step 1 evidence is captured.** Deleting the **access key** removes its last-used data; deleting the **IAM user** removes that user's inline policies, group memberships, and attachment records. Either loses evidence the triage depends on — deactivate (not delete) during containment.
 - After containment, re-run this mode with `--contained-at <timestamp>` so Step 6e can detect STILL-ACTIVE use (CloudTrail has delivery lag and the attacker may still be active).
