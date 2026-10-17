@@ -4,7 +4,7 @@
 
 **Hard stops / rules:**
 - Print this **before** any collection call so the operator can contain while Corgiro reads.
-- **Never infer identity from the key prefix.** Before Step 1 resolves the principal, print only conditional containment branches; never infer IAM user, root, role, workload role, GetSessionToken, or GetFederationToken from the key prefix. The prefix (`AKIA` vs `ASIA`) narrows which branches *could* apply, but which one is correct is unknown until Step 1.
+- **Never infer identity from the key prefix.** Before Step 1 resolves the principal, print only conditional containment branches; never infer IAM user, root, role, workload role, GetSessionToken, or GetFederationToken from the key prefix. The prefix (`AKIA` vs `ASIA`) is **not** a branch selector — an `AKIA` may be an IAM-user or a root key, and an `ASIA` may be a role session, a federation/session-token session, or a workload-role session; which branch is correct is unknown until Step 1 resolves the principal.
 - Every command here is **containment / mutating guidance the operator runs under their own authority** — label it `not executed by Corgiro — run under your own authority`. `CorgiroReadOnlyRole` cannot perform any of it. Corgiro never runs these.
 - Printed commands never contain a raw key ID: use the subject's `$COMPROMISED_ACCESS_KEY_ID_N` placeholder ("the key you supplied"). All other substituted values (user name, role name, account, region) are literal only **after** Step 1 resolves them and only when they match their regex (MODE.md Safety); until then show the placeholder.
 - Also write this runbook to `containment.md` in the Run Directory (key IDs masked per MODE.md Safety).
@@ -16,7 +16,7 @@
 
 With `guardduty_finding_id` (+ account + region) or `health_event_arn`, print a generic banner, then make the resolve call(s) to fill it in, then reprint:
 - `aws guardduty get-findings --detector-id <id> --finding-ids <finding-id> --region <region>` — carries the access key, principal, first/last seen, actor IP, and API. Resource type for IAM findings is `AccessKey` ([GuardDuty compromised-credentials](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-creds.html)).
-- For a Health event, **two** calls: `aws health describe-event-details --event-arns <arn> --region us-east-1` returns the event **description** but NOT the affected entities ([DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); the affected key comes from `aws health describe-affected-entities --filter '{"eventArns":["<arn>"]}' --region us-east-1`, whose `entities[].entityValue` carries the affected resource (the access key ID for a credential-exposure event) ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html)). Validate `entityValue` against `^(AKIA|ASIA)[0-9A-Z]{16}$` before using it as the subject key.
+- For a Health event, **two** calls: `aws health describe-event-details --event-arns <arn> --region us-east-1` returns the event **description** ([DescribeEventDetails](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeEventDetails.html)); then `aws health describe-affected-entities --filter '{"eventArns":["<arn>"]}' --region us-east-1` returns the affected entities, whose `entities[].entityValue` the API documents only as "the ID of the affected entity" ([DescribeAffectedEntities](https://docs.aws.amazon.com/health/latest/APIReference/API_DescribeAffectedEntities.html) → [AffectedEntity](https://docs.aws.amazon.com/health/latest/APIReference/API_AffectedEntity.html)). Treat `entityValue` as a **candidate** only: accept it as the subject key **iff** it matches `\A(AKIA|ASIA)[0-9A-Z]{16}\z`; otherwise record the key as `not-observable` and require an operator-supplied `access_key_id`. Corgiro does not assert from memory that a credential-exposure event's `entityValue` is an access-key ID.
 
 These are read-only and count against the budget; they are the one exception to "print before any call".
 
@@ -29,11 +29,11 @@ Identity is unknown before Step 1, and the key **prefix never selects a branch**
 Each branch below carries its "applies if" condition explicitly.
 
 ### A. The subject resolves to an IAM user long-lived key (`AKIA…`, `userIdentity.type=IAMUser`)
-Deactivate the key — do not delete it first (deleting the key removes its last-used data, and the point of containment is to neutralize the key while preserving evidence; see [delete-access-key](https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteAccessKey.html)):
+Deactivate the key — do not delete it first. Deactivation neutralizes the key (`update-access-key --status Inactive`) while leaving the key, its metadata, and the user's policies in place for the triage to read; deletion is irreversible and discards evidence, so defer it until Step 1 has captured what it needs. ([update-access-key](https://docs.aws.amazon.com/cli/latest/reference/iam/update-access-key.html); [delete-access-key](https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteAccessKey.html).)
 ```
 # not executed by Corgiro — run under your own authority
-aws iam update-access-key --access-key-id "$COMPROMISED_ACCESS_KEY_ID_N" \
-  --status Inactive --user-name <USER_NAME_AFTER_STEP_1>
+aws iam update-access-key --access-key-id="$COMPROMISED_ACCESS_KEY_ID_N" \
+  --status=Inactive --user-name=<USER_NAME_AFTER_STEP_1>
 ```
 (For a **root** key — branch E — the same call is run **without** `--user-name`, which operates on the caller's own root credentials; see [update-access-key](https://docs.aws.amazon.com/cli/latest/reference/iam/update-access-key.html).) `Inactive` means the key can no longer be used for calls, while `Active` is usable. **Deactivation does not invalidate already-issued temporary credentials** (any `ASIA` sessions the key minted stay valid until they expire) — see branch B.
 
@@ -41,9 +41,9 @@ aws iam update-access-key --access-key-id "$COMPROMISED_ACCESS_KEY_ID_N" \
 Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy (an `aws:TokenIssueTime` `DateLessThanEquals` Deny) to the role — this requires `iam:PutRolePolicy` and **affects every session of that role issued before now, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)):
 ```
 # not executed by Corgiro — run under your own authority
-aws iam put-role-policy --role-name <ROLE_NAME_AFTER_STEP_1> \
-  --policy-name AWSRevokeOlderSessions \
-  --policy-document '<AWSRevokeOlderSessions document — see the doc above>'
+aws iam put-role-policy --role-name=<ROLE_NAME_AFTER_STEP_1> \
+  --policy-name=AWSRevokeOlderSessions \
+  --policy-document=<AWSRevokeOlderSessions document — see the doc above>
 ```
 If the role is an IAM Identity Center permission-set role, revoke it in Identity Center instead ([Use a Deny policy to revoke active user permissions](https://docs.aws.amazon.com/singlesignon/latest/userguide/prereqs-revoking-user-permissions.html)).
 
@@ -58,5 +58,5 @@ Separate root runbook: sign in as root, delete the root access keys, and enable/
 
 ## Common lines (print always)
 - If `AWSCompromisedKeyQuarantineV2` or `AWSCompromisedKeyQuarantineV3` is already attached to the principal, AWS has already detected the exposure and opened a Support case — **do not detach it until rotation completes** ([V2](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSCompromisedKeyQuarantineV2.html), [V3](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSCompromisedKeyQuarantineV3.html)). Step 1 flags whether it is attached.
-- **Do not delete the user, role, or key until Step 1 evidence is captured.** Deleting the **access key** removes its last-used data; deleting the **IAM user** removes that user's inline policies, group memberships, and attachment records. Either loses evidence the triage depends on — deactivate (not delete) during containment.
+- **Do not delete the user, role, or key until Step 1 evidence is captured.** Deletion is irreversible: deleting the **IAM user** removes that user's inline policies, group memberships, and attachment records, and deleting the **access key** discards it and its metadata. Deactivate (not delete) during containment so the triage can still read the evidence.
 - After containment, re-run this mode with `--contained-at <timestamp>` so Step 6e can detect STILL-ACTIVE use (CloudTrail has delivery lag and the attacker may still be active).

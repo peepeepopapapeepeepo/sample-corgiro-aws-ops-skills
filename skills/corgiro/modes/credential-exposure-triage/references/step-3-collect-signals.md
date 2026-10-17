@@ -12,7 +12,7 @@ From the delegated-admin account, **per region**: the delegated admin's own `lis
 aws guardduty list-detectors --region <region> --no-paginate                       # the admin's own detector
 aws guardduty list-members --detector-id <admin-detector-id> --region <region> --no-paginate   # member accounts + their relationship status
 ```
-Then query findings. Build the `--finding-criteria` JSON **programmatically** from the raw key (do not paste the key into a single-quoted string, where `$COMPROMISED_ACCESS_KEY_ID_N` would not expand); validate the key against `^(AKIA\|ASIA)[0-9A-Z]{16}$` first:
+Then query findings. Build the `--finding-criteria` JSON **programmatically** from the raw key (do not paste the key into a single-quoted string, where `$COMPROMISED_ACCESS_KEY_ID_N` would not expand); validate the key against `\A(AKIA\|ASIA)[0-9A-Z]{16}\z` first:
 ```
 CRIT="$(printf '{"Criterion":{"resource.accessKeyDetails.accessKeyId":{"Eq":["%s"]}}}' "$COMPROMISED_ACCESS_KEY_ID_N")"
 aws guardduty list-findings  --detector-id <detector-id> --region <region> --no-paginate --finding-criteria "$CRIT"
@@ -20,7 +20,7 @@ aws guardduty get-findings   --detector-id <detector-id> --region <region> --no-
 ```
 - `FindingCriteria` filters on `resource.accessKeyDetails.accessKeyId` (also `.userName`, `.principalId`). Source: [list-findings](https://docs.aws.amazon.com/cli/latest/reference/guardduty/list-findings.html), [FindingCriteria property](https://docs.aws.amazon.com/cdk/api/v2/docs/@aws-cdk_cfn-property-mixins.aws_guardduty.CfnFilterPropsMixin.FindingCriteriaProperty.html). The resource type for IAM findings is `AccessKey` ([compromised-creds](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-creds.html)).
 - `get-findings --finding-ids` accepts at most **50 ids per call** ([get-findings](https://docs.aws.amazon.com/cli/latest/reference/guardduty/get-findings.html)) — batch the ids from `list-findings`.
-- **Which account's detector?** The delegated admin can query member findings through the admin detector when auto-enable/association is in place; where `list-members` shows a member not associated, record its coverage as `not-permitted` for that account/region rather than assuming silence. The Roster does not record which account is the delegated admin — take it from config / operator input; if unknown, fall back to the per-account path below.
+- **Which account's detector?** The delegated admin can query member findings through the admin detector when auto-enable/association is in place; where `list-members` shows a member not associated, record its coverage as `not-permitted` for that account/region rather than assuming silence. The delegated-admin account is read from the `delegatedAdminAccountId` config key (documented in [`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md)); if it is unset, ask the operator once or fall back to the per-account path below.
 - **No type filter** — keep every finding type. GuardDuty `Severity` is reported verbatim as AWS data and is **never** mapped to Risk Tier (CONTEXT.md).
 - The key value is read from `$COMPROMISED_ACCESS_KEY_ID_N`; it is never written to `signals.json` (mask there) or to any log/debug file.
 
@@ -43,6 +43,6 @@ Collect the IAM credential report once per in-scope account (`aws iam generate-c
 ## ViewOnlyAccess degradation (Path A)
 `ViewOnlyAccess` grants neither GuardDuty nor Health reads (MODE.md Prerequisites); when the permission set is `ViewOnlyAccess`, skip this step, record `signals_unavailable` in `completeness.json`, and continue to Step 4. This is documented degradation, not an error.
 
-**Hard stops:** all calls `--no-paginate` with manual `NextToken`, counted against `call_budget`; nothing outside `target-plan.json`.
+**Hard stops:** all calls `--no-paginate` with manual `NextToken`. **Budget (both counters, pre-call):** every GuardDuty/Health/credential-report request decrements both `call_budget` (its account) and `global_call_budget` before the call; stop the account at the per-account cap (`partial — call budget exhausted`) and the whole run before a call that would exceed `global_call_budget` (`partial — global call budget exhausted`, recorded in `completeness.json`). Nothing runs outside `target-plan.json`.
 
 **Output:** `signals.json` per [`state-contract.md`](state-contract.md).
