@@ -40,21 +40,30 @@ aws iam update-access-key --access-key-id="$COMPROMISED_ACCESS_KEY_ID_N" \
 
 > **Derived (attacker-created) keys have no `$COMPROMISED_ACCESS_KEY_ID_N` — resolve the full ID by `sha256`, never by a suffix.** The operator never supplied a derived key, so there is no env var and no 4-character `AKIA****XXXX` suffix match (two keys can share a suffix, and a suffix match can deactivate the wrong key). Instead, print a read-only lookup that lists the owning user's keys, then match the returned **full** ID whose SHA-256 equals the subject fingerprint, deactivating that matched value:
 > ```
-> # not executed by Corgiro — run under your own authority
-> # 1) list the owner's keys (read-only); <USER_NAME> and <FINGERPRINT> are Corgiro-filled, validated
-> aws iam list-access-keys --user-name=<DERIVED_KEY_OWNER_AFTER_STEP_1> --no-paginate \
->   --query 'AccessKeyMetadata[].AccessKeyId' --output text
+> #!/bin/bash
+> # not executed by Corgiro — save and run under your own authority
+> set -eu
+> # 1) list the owner's keys (read-only); <DERIVED_KEY_OWNER_AFTER_STEP_1> and <FINGERPRINT> are Corgiro-filled, validated
+> OWNER='<DERIVED_KEY_OWNER_AFTER_STEP_1>'
+> FINGERPRINT='<SUBJECT_FINGERPRINT_64HEX>'
+> MATCH=''            # initialize empty so no stale value from the environment can leak into the mutation
+> COUNT=0
 > # 2) pick the ID whose sha256 equals the subject fingerprint (no suffix match):
-> for KID in $(aws iam list-access-keys --user-name=<DERIVED_KEY_OWNER_AFTER_STEP_1> --no-paginate --query 'AccessKeyMetadata[].AccessKeyId' --output text); do
->   [ "$(printf %s "$KID" | shasum -a 256 | cut -d' ' -f1)" = "<SUBJECT_FINGERPRINT_64HEX>" ] && MATCH="$KID"
+> for KID in $(aws iam list-access-keys --user-name="$OWNER" --no-paginate --query 'AccessKeyMetadata[].AccessKeyId' --output text); do
+>   if [ "$(printf %s "$KID" | shasum -a 256 | cut -d' ' -f1)" = "$FINGERPRINT" ]; then
+>     MATCH="$KID"; COUNT=$((COUNT + 1))
+>   fi
 > done     # python one-liner equivalent: hashlib.sha256(kid.encode()).hexdigest() == fingerprint
-> # 3) deactivate exactly the matched ID held in the shell variable (never a literal, never a suffix):
-> [ -n "${MATCH:-}" ] && aws iam update-access-key --access-key-id="$MATCH" --status=Inactive --user-name=<DERIVED_KEY_OWNER_AFTER_STEP_1>
+> # 3) deactivate ONLY when exactly one key matched the fingerprint; otherwise stop before any mutation:
+> if [ "$COUNT" -ne 1 ]; then
+>   echo "expected exactly 1 key matching the fingerprint, found $COUNT; refusing to deactivate" >&2; exit 1
+> fi
+> aws iam update-access-key --access-key-id="$MATCH" --status=Inactive --user-name="$OWNER"
 > ```
-> `<SUBJECT_FINGERPRINT_64HEX>` is the derived subject's `sha256` fingerprint from `subjects.json` (not a key value); `<DERIVED_KEY_OWNER_AFTER_STEP_1>` is the validated owner name. The full key ID lives only in the operator's shell variable for the single deactivate call and is never persisted by Corgiro.
+> `<SUBJECT_FINGERPRINT_64HEX>` is the derived subject's `sha256` fingerprint from `subjects.json` (not a key value); `<DERIVED_KEY_OWNER_AFTER_STEP_1>` is the validated owner name. `MATCH` is initialized empty inside the script and matches are counted, so a stale inherited value cannot be mutated and zero-or-multiple matches stop before `update-access-key`. The full key ID lives only in the operator's shell variable for the single deactivate call and is never persisted by Corgiro.
 
 ### B. The subject resolves to a role session (`ASIA…`, `userIdentity.type=AssumedRole` from `AssumeRole`)
-Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy — an `aws:TokenIssueTime` `DateLessThan` Deny — to the role. This requires `iam:PutRolePolicy` and **affects every session of that role issued before the revoke cutoff, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)). The block below has exactly two values Corgiro fills, both as **quoted literals on the first two lines** (never left as unset variables): the revoke cutoff and the role name. The **revoke cutoff is the operator's run time plus 30 seconds** (`now + 30 s` at the moment the runbook is produced), **not `contained_at`** — a session the attacker re-mints after an earlier containment timestamp must still be caught, and AWS's console revoke denies sessions issued up to "approximately 30 seconds into the future" to cover policy-propagation delay ([revoke-sessions](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)). (The cutoff must be at least the newest observed attacker session's issue time; `now + 30 s` satisfies that because every observed session was issued in the past.) Corgiro generates the cutoff as an ISO-8601 literal (UTC, `Z` suffix), validates it against the `ISO8601_TS` body in [`step-7-report-handoff.md`](step-7-report-handoff.md) → "Per-type substitution regexes" before writing it, and fills the role name only after Step 1 resolved it and it matched the IAM-name body `[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}`. Until Step 1 resolves, the role-name line shows the placeholder `<ROLE_NAME_AFTER_STEP_1>` and the block must not be run. **Run the block as a saved script, not an interactive paste:** save it as `revoke.sh` and run `bash revoke.sh`. A `: "${VAR:?msg}"` guard aborts a *script* on an empty value but, pasted line by line into an interactive shell, only fails that one line and lets the rest run; and an *unresolved placeholder* like `<ROLE_NAME_AFTER_STEP_1>` is non-empty, so the empty-check alone would pass it through. The block therefore (a) is meant to be run as a script, (b) **chains every step with `&&`** so any failure stops the chain before `put-role-policy`, and (c) **rejects any value still containing `<`** (an unfilled placeholder) in addition to the empty check. The policy body is a fixed template written to a `mktemp` file created under `umask 077` and passed by `file://`:
+Revoke in-flight sessions by attaching the `AWSRevokeOlderSessions` inline policy — an `aws:TokenIssueTime` `DateLessThan` Deny — to the role. This requires `iam:PutRolePolicy` and **affects every session of that role issued before the revoke cutoff, not just the attacker's** ([Revoke IAM role temporary security credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)). The block below has exactly two values Corgiro fills, both as **quoted literals on the first two lines** (never left as unset variables): the revoke cutoff and the role name. The **revoke cutoff is the report-generation time plus 30 seconds** (a freshly captured `now + 30 s` at the moment Corgiro produces this runbook — **not** `contained_at`, and **not** `window.until`) — a session the attacker re-mints during collection must still be caught, and AWS's console revoke denies sessions issued up to "approximately 30 seconds into the future" to cover policy-propagation delay ([revoke-sessions](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html)). The captured timestamp is validated against `ISO8601_TS` and **must be later than the newest observed attacker session's issue time**; if the operator runs the script hours later, regenerate so the cutoff is still fresh. Corgiro generates the cutoff as an ISO-8601 literal (UTC, `Z` suffix), validates it against the `ISO8601_TS` body in [`step-7-report-handoff.md`](step-7-report-handoff.md) → "Per-type substitution regexes" before writing it, and fills the role name only after Step 1 resolved it and it matched the IAM-name body `[A-Za-z0-9][A-Za-z0-9_+=.@-]{0,63}`. Until Step 1 resolves, the role-name line shows the placeholder `<ROLE_NAME_AFTER_STEP_1>` and the block must not be run. **Run the block as a saved script, not an interactive paste:** save it as `revoke.sh` and run `bash revoke.sh`. A `: "${VAR:?msg}"` guard aborts a *script* on an empty value but, pasted line by line into an interactive shell, only fails that one line and lets the rest run; and an *unresolved placeholder* like `<ROLE_NAME_AFTER_STEP_1>` is non-empty, so the empty-check alone would pass it through. The block therefore (a) is meant to be run as a script, (b) **chains every step with `&&`** so any failure stops the chain before `put-role-policy`, and (c) **rejects any value still containing `<`** (an unfilled placeholder) in addition to the empty check. The policy body is a fixed template written to a `mktemp` file created under `umask 077` and passed by `file://`:
 ```
 #!/bin/bash
 # revoke.sh — not executed by Corgiro; save and run as `bash revoke.sh` under your own authority
@@ -102,12 +111,28 @@ Treat the workload as compromised: apply a session Deny keyed on `aws:userId` ([
 ### E. The subject resolves to the root user (`userIdentity.type=Root`, or an active root key in the credential report)
 Separate root runbook: sign in as root, delete the root access keys, and enable/rotate root MFA ([Resolve unauthorized activity](https://repost.aws/knowledge-center/potential-account-compromise)). Root is confirmed only when a resolved event shows `userIdentity.type == Root` or the credential-report root row has an active key — never inferred from the prefix (Step 6f).
 
-### F. A successful `RunInstances` with an instance profile (any subject that launched instances)
-When a **succeeded `RunInstances` carried `requestParameters.iamInstanceProfile`** (Step 6 PrivilegeEscalation; the created instance IDs are in `responseElements.instancesSet.items[].instanceId`, and the instance profile's role is read from the event / `ec2 describe-instances`), the attacker has a live instance holding a role. Contain the instance **and** its role — and preserve evidence before isolating:
-- **Evidence-snapshot first**, then isolate: `aws ec2 create-snapshot --volume-id=<volume of the instance>` (evidence preservation the operator runs, as in branch D) **before** changing the instance.
-- **Isolate the instance** — move it to a quarantine security group (`aws ec2 modify-instance-attribute --instance-id=<validated i-…> --groups <quarantine-sg-id>`) or stop it (`aws ec2 stop-instances --instance-ids=<validated i-…>`) per GuardDuty's EC2 remediation guidance ([Remediating a compromised EC2 instance](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-ec2.html)).
-- **Revoke sessions on the instance-profile role** using the branch B `AWSRevokeOlderSessions` template against that role name (an instance-role session is minted under the role; revoking it stops the stolen instance credentials, run-time + 30 s cutoff).
-These are mutating operator guidance (not run by Corgiro); the `describe-instances`/role reads that surface the IDs and the role are the read-only Step 6b follow-ups.
+### F. A successful `RunInstances` (any subject that launched instances)
+When a **succeeded `RunInstances`** is in the timeline (Step 6; the created instance IDs are in `responseElements.instancesSet.items[].instanceId`), the attacker has a live instance. Contain it — and, when it carries a role, contain that role too.
+
+**Resolve the instance-profile role in-mode (read-only) so the revoke script is filled, not "edit the template".** When the `RunInstances` event carried `requestParameters.iamInstanceProfile` (Step 6 PrivilegeEscalation), read the profile's role read-only — `aws iam get-instance-profile --instance-profile-name=<validated profile name>` → `InstanceProfile.Roles[].RoleName` (`iam:GetInstanceProfile` is in `ReadOnlyAccess`) — and **fill that resolved role name into a branch-B `revoke.sh`** rather than telling the operator to edit a template or reuse a prior script. If the role cannot be resolved read-only, print the branch-B script with `<ROLE_NAME_AFTER_STEP_1>` still unfilled (its `<`-rejecting guard then stops the run).
+
+**Containment order — revoke first, then snapshot, then isolate (fail-fast):** revoking sessions destroys no evidence, so revoke the role's sessions first; snapshot before any instance change; and **fail-fast** so a failed snapshot never reaches the stop/isolate step. Save and run as a script:
+```
+#!/bin/bash
+# not executed by Corgiro — save and run under your own authority
+set -eu
+INSTANCE_ID='<validated i-…>'            # Corgiro-filled from responseElements.instancesSet.items[].instanceId
+VOLUME_ID='<validated vol-… of the instance>'
+QUARANTINE_SG='<operator-supplied quarantine security group id>'
+# 1) revoke the instance-profile role's sessions first (no evidence lost) — run the branch-B revoke.sh with the role name resolved above by iam get-instance-profile
+bash revoke.sh &&
+# 2) evidence-snapshot BEFORE any instance change; fail-fast so a failed snapshot stops here:
+aws ec2 create-snapshot --volume-id="$VOLUME_ID" --description="corgiro-evidence-$INSTANCE_ID" || { echo "snapshot failed; not isolating — preserve evidence first" >&2; exit 1; }
+# 3) only after the snapshot succeeded, isolate the instance (quarantine SG, or stop):
+aws ec2 modify-instance-attribute --instance-id="$INSTANCE_ID" --groups="$QUARANTINE_SG"
+# or, if a quarantine SG is not prepared: aws ec2 stop-instances --instance-ids="$INSTANCE_ID"
+```
+([Remediating a compromised EC2 instance](https://docs.aws.amazon.com/guardduty/latest/ug/compromised-ec2.html).) **A launched instance with no instance profile** still gets contained: snapshot (fail-fast) then `aws ec2 stop-instances --instance-ids=<validated i-…>` (or move it to the quarantine SG); there is no role to revoke, so skip step 1. These are mutating operator guidance (not run by Corgiro); the `describe-instances` / `get-instance-profile` reads that surface the IDs and the role are the read-only Step 6b follow-ups.
 
 ## Common lines (print always)
 - **Containment order, and who runs this when admins are locked out.** Contain **every** subject — including every derived (attacker-created) subject and any instance-role session — and verify each is `deactivated-verified`/`expired` **before** restoring any locked-out legitimate principal; restoring a locked-out admin while attacker access is still live lets the attacker re-apply the Deny. If the attacker locked out the IAM administrators (6c), the operator runs this runbook as the AWS account **root user** or a pre-provisioned **break-glass role** — locked-out IAM admins cannot ([AWS root-user best practices — reserve root for tasks that require it, including recovering locked-out access](https://docs.aws.amazon.com/IAM/latest/UserGuide/root-user-best-practices.html)).
