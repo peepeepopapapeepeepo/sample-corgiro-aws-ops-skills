@@ -110,20 +110,53 @@ A value that fails its regex is never substituted — emit the `FINDING` block i
 | Server-side IP search | Lake / Athena filtered on `sourceIPAddress IN (...)` (**billable**) | no server-side IP lookup attribute |
 | Sign-in / assume-role verification | `["aws","sts","assume-role","--role-arn=<role ARN>","--role-session-name=verify","--query=AssumedRoleUser"]` run by the **intended** principal (operator-confirmed role only); console sign-in test by the restored user. The `--query=AssumedRoleUser` is mandatory: without it the output carries live `Credentials.SecretAccessKey` / `Credentials.SessionToken` ([assume-role](https://docs.aws.amazon.com/cli/latest/reference/sts/assume-role.html)), which must never reach a drop file | Corgiro cannot test sign-in/assume read-only |
 | EBS volume forensics (after containment) | `["aws","ec2","describe-snapshot-attribute","--snapshot-id=<snapshot ID>","--attribute=createVolumePermission"]` (the `create-snapshot` that precedes it is in `containment.md`, admin-run) | snapshot creation mutates (containment); the describe is read-only |
-| Support case | `["aws","support","describe-cases","--include-resolved-cases"]` | `support:DescribeCases` is read-only and in ReadOnlyAccess but needs Business+; may be unavailable |
+| Support case | `["aws","support","describe-cases","--include-resolved-cases","--region=us-east-1"]` — the Support API is served only from `us-east-1` (plus `us-west-2`/`eu-west-1`); an operator whose default Region is elsewhere gets an endpoint error without this ([About the Support API](https://docs.aws.amazon.com/awssupport/latest/user/about-support-api.html)) | `support:DescribeCases` is read-only and in ReadOnlyAccess but needs Business+; may be unavailable |
 | IP geolocation / threat intel | (outside AWS — security team's tooling) | not an AWS API; GuardDuty carries geolocation when a finding exists |
 
 > **Allowed calls that are nonetheless handed off.** `s3:Get*`/`List*`, `ssm:Get*`/`List*`, and `support:DescribeCases` are in ReadOnlyAccess and not on the member role's deny list, so the Mode runs them **within budget** and hands off only on `AccessDenied` or `SubscriptionRequiredException`. Where Corgiro declines rather than being denied (SSM command output, which may contain secrets), the task says **"declined: may contain secrets"**, not "denied". Step 11's recovery check already runs `get-bucket-versioning`; do not duplicate it as a handoff task.
 
-### CloudTrail Lake / Athena blocked-task template
-A runnable Lake/Athena query is impossible until the operator supplies the event-data-store / table / output-location. Emit a **blocked task** with those as explicit placeholders the operator fills — never invented values:
+### CloudTrail Lake / Athena blocked-task workflow
+A runnable Lake/Athena query is impossible until the operator supplies the event-data-store / table / output-location, so this task is emitted **BLOCKED**: the manifest carries it with `commands: []`, `commands_hash` over the empty array, and **no CSV expectation is hashed** (the operator produces the CSV locally and then runs the `lake-athena-query` writer on it). `handoff.md` prints the full query-start → poll → result-retrieval workflow with the operator-supplied values as the only placeholders — Corgiro never invents a data-store id, table, or output URI. The SQL and all identifiers are regex/IP-validated before printing.
+
+**CloudTrail Lake** (`<event-data-store-id>` is operator-supplied):
 ```
--- BLOCKED until operator supplies <event-data-store-id> (Lake) or <athena-table> + <output-s3-uri> (Athena). Billable.
-SELECT eventTime, eventName, sourceIPAddress, errorCode
-FROM <event-data-store-id | athena-table>
-WHERE userIdentity.accessKeyId = '<the key you supplied>'   -- operator substitutes locally; never written by Corgiro
-  AND eventTime > '<since>' AND eventTime < '<until>'
+# BLOCKED until operator supplies <event-data-store-id>. Billable.
+set -eu
+QID="$(aws cloudtrail start-query --query-statement "SELECT eventTime, eventName, sourceIPAddress, errorCode
+  FROM <event-data-store-id>
+  WHERE userIdentity.accessKeyId = '<the key you supplied>'
+    AND eventTime > '<since>' AND eventTime < '<until>'" --query=QueryId --output=text)" || exit 1
+# poll until the query leaves RUNNING/QUEUED:
+while :; do
+  ST="$(aws cloudtrail get-query-results --query-id="$QID" --query=QueryStatus --output=text)" || exit 1
+  case "$ST" in FINISHED) break ;; FAILED|CANCELLED|TIMED_OUT) echo "query $ST" >&2; exit 1 ;; esac
+  sleep 5
+done
+# retrieve all result pages and write the CSV the lake-athena-query writer will base64:
+aws cloudtrail get-query-results --query-id="$QID" --max-query-results=1000 --output=json > lake-results.raw.json || exit 1
+# operator converts the JSON rows to the exact CSV header eventTime,eventName,sourceIPAddress,errorCode, then runs the lake-athena-query writer on it
 ```
+
+**Athena** (`<athena-table>`, `<output-s3-uri>`, `<workgroup>` operator-supplied):
+```
+# BLOCKED until operator supplies <athena-table> + <output-s3-uri>. Billable.
+set -eu
+EID="$(aws athena start-query-execution \
+  --query-string "SELECT eventTime, eventName, sourceIPAddress, errorCode
+    FROM <athena-table>
+    WHERE userIdentity.accessKeyId = '<the key you supplied>'
+      AND eventTime > '<since>' AND eventTime < '<until>'" \
+  --result-configuration "OutputLocation=<output-s3-uri>" \
+  --work-group "<workgroup>" --query=QueryExecutionId --output=text)" || exit 1
+while :; do
+  ST="$(aws athena get-query-execution --query-execution-id="$EID" --query=QueryExecution.Status.State --output=text)" || exit 1
+  case "$ST" in SUCCEEDED) break ;; FAILED|CANCELLED) echo "query $ST" >&2; exit 1 ;; esac
+  sleep 5
+done
+# Athena has already written the CSV to <output-s3-uri>; download it, then run the lake-athena-query writer on the downloaded .csv:
+aws s3 cp "<output-s3-uri>/$EID.csv" ./lake-results.csv || exit 1
+```
+([CloudTrail Lake query APIs](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/query-create-query.html); [Athena query execution APIs](https://docs.aws.amazon.com/athena/latest/ug/querying-with-cli.html).) Either path yields a local results file; the operator then runs the `lake-athena-query` writer (above) on it, which validates the `eventTime,eventName,sourceIPAddress,errorCode` header and base64-encodes it. The `WHERE userIdentity.accessKeyId = '<the key you supplied>'` literal is substituted by the operator locally and is never written by Corgiro; any `sourceIPAddress IN (...)` list is built only from IP-parser-validated IPs.
 
 ## `handoff-manifest.json` schema
 
@@ -165,13 +198,13 @@ Written beside `handoff.md` **and** copied into the original Run Directory as `h
   - `lambda-get-function` → required `{Configuration:{FunctionName, FunctionArn}}`, optional `Code?` ([get-function](https://docs.aws.amazon.com/cli/latest/reference/lambda/get-function.html)).
   - `logs-filter-log-events` → required `{events:[{message, timestamp}]}` (array may be empty), optional `searchedLogStreams?`, `nextToken?` ([filter-log-events](https://docs.aws.amazon.com/cli/latest/reference/logs/filter-log-events.html)). Each `message` is kept as an opaque sanitized string (truncate → escape → wrap) and never parsed as commands.
   - `apigatewayv2-inventory` → required `{apis:{Items:[]}, routes:{Items:[]}, integrations:{Items:[]}}` — each member is the **unmodified** response object of `get-apis` / `get-routes` / `get-integrations`, each of which returns an object whose `Items` array holds the collection ([get-apis](https://docs.aws.amazon.com/cli/latest/reference/apigatewayv2/get-apis.html), [get-routes](https://docs.aws.amazon.com/cli/latest/reference/apigatewayv2/get-routes.html), [get-integrations](https://docs.aws.amazon.com/cli/latest/reference/apigatewayv2/get-integrations.html)).
-  - `s3-list-objects` → required `{Contents:[{Key, Size, LastModified}]}` (array may be empty), optional `IsTruncated?`, `KeyCount?`, `NextContinuationToken?` ([list-objects-v2](https://docs.aws.amazon.com/cli/latest/reference/s3api/list-objects-v2.html); `IsTruncated` is optional because the CLI's auto-paginated merged output may omit it).
+  - `s3-list-objects` → `{Contents?:[{Key, Size, LastModified}], CommonPrefixes?:[{Prefix}], IsTruncated?, KeyCount?, NextContinuationToken?}` — **every field is optional**. `ListObjectsV2` returns `Contents` only when the bucket/prefix has objects, so an empty bucket (or a delimiter listing that yields only `CommonPrefixes`) legitimately has **no** `Contents` member; a parse with `Contents` absent is accepted and treated as `Contents: []` ([list-objects-v2](https://docs.aws.amazon.com/cli/latest/reference/s3api/list-objects-v2.html)). If `Contents` is present it must be an array of `{Key, Size, LastModified}`; `IsTruncated` is optional because the CLI's auto-paginated merged output may omit it.
   - `ssm-command-content` → required `{invocation:{CommandId, InstanceId, Status}, invocations:{CommandInvocations:[]}}` — `invocation` is the flat object `get-command-invocation` returns and `invocations` is the `list-command-invocations` response object ([get-command-invocation](https://docs.aws.amazon.com/cli/latest/reference/ssm/get-command-invocation.html), [list-command-invocations](https://docs.aws.amazon.com/cli/latest/reference/ssm/list-command-invocations.html)). Import rule 6 drops every output-bearing field (`StandardOutputContent`, `StandardErrorContent`, `CommandPlugins[].Output`, …) before anything is persisted.
   - `sts-assume-role-verify` → required `{Arn, AssumedRoleId}` — the `AssumedRoleUser` object alone, because the template's `--query=AssumedRoleUser` projects it ([assume-role](https://docs.aws.amazon.com/cli/latest/reference/sts/assume-role.html)). An `output` that contains a `Credentials` member, or any field named `SecretAccessKey`/`SessionToken`/`secretAccessKey`/`sessionToken`, is **rejected and never persisted** (the operator ran the command without the `--query`).
   - `support-describe-cases` → required `{cases:[]}` ([describe-cases](https://docs.aws.amazon.com/cli/latest/reference/support/describe-cases.html)).
   - `ec2-describe-snapshot-attribute` → required `{SnapshotId, CreateVolumePermissions:[]}` ([describe-snapshot-attribute](https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-snapshot-attribute.html)).
   - `ip-geolocation` → required `{ip}`, optional `country?`, `asn?` (operator-authored from their own tooling; no AWS command).
-  - `lake-athena-query` (`csv`) → the raw CSV bytes are **stored base64-encoded** in `output_b64` (JSON cannot hold raw bytes); Corgiro base64-decodes, then requires a header row whose columns are exactly `eventTime,eventName,sourceIPAddress,errorCode` (the query template's SELECT list) and zero or more data rows parsed with a standard CSV reader (reject on a column-count mismatch). A decode failure, a header mismatch, or a row that does not parse rejects the file (rule 3).
+  - `lake-athena-query` (`csv`) → the task is emitted **BLOCKED** (`commands: []`, hash over the empty array) because the event-data-store / table / output-location are operator-supplied; the operator follows the "CloudTrail Lake / Athena blocked-task workflow" above to produce a local results CSV, then runs the `lake-athena-query` writer on it. The raw CSV bytes are **stored base64-encoded** in `output_b64` (JSON cannot hold raw bytes); Corgiro base64-decodes, then requires a header row whose columns are exactly `eventTime,eventName,sourceIPAddress,errorCode` (the query template's SELECT list) and zero or more data rows parsed with a standard CSV reader (reject on a column-count mismatch). A decode failure, a header mismatch, or a row that does not parse rejects the file (rule 3).
 - **Which tasks are always emitted vs event-triggered:** `always_emitted: true` only for `support-describe-cases` and (when any IP was seen) the server-side IP-search task; all resource-bound tasks are **event-triggered** — emitted only when a matching event/finding produced a validated resource.
 
 **Digest file (`handoff-manifest.sha256`).** A single line: the lowercase hex `sha256` of the exact bytes of `handoff-manifest.json`, a single space, and the literal filename `handoff-manifest.json` (the `sha256sum` format), with a trailing newline. Written into the original Run Directory (= `import_source_run` on a later import).
@@ -209,7 +242,7 @@ BODY="\"output\":$OUT"
 #   OUT="$(aws sts assume-role --role-arn=<role ARN> --role-session-name=verify --query=AssumedRoleUser)" || exit 1
 #   BODY="\"output\":$OUT"
 # support-describe-cases:
-#   OUT="$(aws support describe-cases --include-resolved-cases)" || exit 1
+#   OUT="$(aws support describe-cases --include-resolved-cases --region=us-east-1)" || exit 1
 #   BODY="\"output\":$OUT"
 # ec2-describe-snapshot-attribute:
 #   OUT="$(aws ec2 describe-snapshot-attribute --snapshot-id=<snapshot ID> --attribute=createVolumePermission --region=<region>)" || exit 1
@@ -218,7 +251,9 @@ BODY="\"output\":$OUT"
 #   BODY='"output":{"ip":"<ip>","country":"<country or null>","asn":"<asn or null>"}'
 # lake-athena-query (csv; the operator supplies the path of the downloaded query-results file):
 #   RESULTS_CSV='<operator-supplied local path to the downloaded results .csv>'
-#   B64="$(base64 < "$RESULTS_CSV" | tr -d '\n')" || exit 1
+#   [ -s "$RESULTS_CSV" ] || { echo "results CSV missing or empty: $RESULTS_CSV" >&2; exit 1; }
+#   RAW="$(base64 < "$RESULTS_CSV")" || exit 1      # capture base64 alone so its non-zero status is not masked by a pipe
+#   B64="$(printf '%s' "$RAW" | tr -d '\n')"        # flatten only after the capture succeeded
 #   BODY="\"output_b64\":\"$B64\""
 # -------------------------------------------------------------------------------
 
@@ -227,7 +262,7 @@ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$TMP" || { echo "dro
 mv "$TMP" "$OUT_FILE"
 trap - EXIT
 ```
-`set -e` plus the explicit `|| exit 1` on every capture means a non-zero `aws` exit (denied, throttled, no such resource) ends the script before `printf`, the `trap` removes the temp file, and no `OUT_FILE` is created; the JSON check catches a truncated or non-JSON response (e.g. `--output text` set in the operator's profile) the same way. Multi-command tasks (`apigatewayv2-inventory`, `ssm-command-content`) compose **one** object under the task's schema — one `drop_filename` per task regardless of command count. The base64 of the CSV task is flattened with `tr -d '\n'` so `output_b64` is a single JSON-safe line.
+`set -e` plus the explicit `|| exit 1` on every capture means a non-zero `aws` exit (denied, throttled, no such resource) ends the script before `printf`, the `trap` removes the temp file, and no `OUT_FILE` is created; the JSON check catches a truncated or non-JSON response (e.g. `--output text` set in the operator's profile) the same way. Multi-command tasks (`apigatewayv2-inventory`, `ssm-command-content`) compose **one** object under the task's schema — one `drop_filename` per task regardless of command count. The CSV task checks the results file is present and non-empty (`[ -s ]`), captures `base64` into a variable on its own (so a `base64` failure is never masked by a following `tr` in a pipe), then flattens with `tr -d '\n'` so `output_b64` is a single JSON-safe line.
 
 ```json
 { "envelope": { "run_id": "...", "task_id": "...", "key_fingerprint": "...", "account": "...", "region": "...", "resource": "...", "format": "json | csv", "commands_hash": "..." } }
