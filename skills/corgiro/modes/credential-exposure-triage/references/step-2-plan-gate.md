@@ -10,7 +10,7 @@ Present the plan gate in the shape defined by [`../../../references/sweep-plan-c
 - The exact lookup attributes and values, **masked** (e.g. `cloudtrail lookup-events AttributeKey=AccessKeyId AttributeValue=AKIA****XXXX`).
 - The window (`since`..`until`) and whether it was clipped to CloudTrail's 90-day Event history ([LookupEvents](https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_LookupEvents.html)).
 - Estimated calls — a **lower bound** and a with-pagination figure (one CloudTrail page = one counted call; GuardDuty/Health per account×region).
-- The caps (`max_hops`, `max_sessions`, `max_derived_subjects`, `call_budget`, `max_parallel`) and any Roster Entries with `readOnlyEnforced: false` (residual risk).
+- The caps (`max_hops`, `max_sessions`, `max_derived_subjects`, `call_budget` per account, `global_call_budget` total across all accounts/regions/subjects/hops/follow-ups/import-validation, `max_parallel`) and any Roster Entries with `readOnlyEnforced: false` (residual risk). Show both the per-account `call_budget` and the run-wide `global_call_budget` in every gate; the estimate must be checked against `global_call_budget` and the gate must warn if the lower bound already approaches it.
 
 **Persist `target-plan.json`** per [`state-contract.md`](state-contract.md). Execute **only** that contract.
 
