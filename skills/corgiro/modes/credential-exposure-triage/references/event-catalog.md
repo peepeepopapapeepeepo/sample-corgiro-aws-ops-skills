@@ -28,11 +28,15 @@ Source: [Logging IAM and AWS STS API calls with CloudTrail](https://docs.aws.ama
 | iam.amazonaws.com | CreateVirtualMFADevice | Persistence | always |
 | iam.amazonaws.com | EnableMFADevice | Persistence | always |
 | iam.amazonaws.com | DeactivateMFADevice | DefenseEvasion | always |
-| iam.amazonaws.com | AttachUserPolicy | PrivilegeEscalation | always |
-| iam.amazonaws.com | AttachRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | AttachUserPolicy | PrivilegeEscalation | attached `policyArn` grants (Allow) — escalation of an attacker-controlled principal |
+| iam.amazonaws.com | AttachUserPolicy | Impact | attached `policyArn` is a Deny applied to a principal the attacker did **not** create (lockout; see 6c) |
+| iam.amazonaws.com | AttachRolePolicy | PrivilegeEscalation | attached `policyArn` grants (Allow) — escalation of an attacker-controlled principal |
+| iam.amazonaws.com | AttachRolePolicy | Impact | attached `policyArn` is a Deny applied to a principal the attacker did **not** create (lockout; see 6c) |
 | iam.amazonaws.com | AttachGroupPolicy | PrivilegeEscalation | always |
-| iam.amazonaws.com | PutUserPolicy | PrivilegeEscalation | always |
-| iam.amazonaws.com | PutRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | PutUserPolicy | PrivilegeEscalation | `requestParameters.policyDocument` has no `"Effect":"Deny"`, or targets a principal the attacker created (grant/escalation) |
+| iam.amazonaws.com | PutUserPolicy | Impact | `requestParameters.policyDocument` contains `"Effect":"Deny"` and the target principal is **not** attacker-created (lockout; see 6c) |
+| iam.amazonaws.com | PutRolePolicy | PrivilegeEscalation | `requestParameters.policyDocument` has no `"Effect":"Deny"`, or targets a principal the attacker created (grant/escalation) |
+| iam.amazonaws.com | PutRolePolicy | Impact | `requestParameters.policyDocument` contains `"Effect":"Deny"` and the target principal is **not** attacker-created (lockout; see 6c) |
 | iam.amazonaws.com | PutGroupPolicy | PrivilegeEscalation | always |
 | iam.amazonaws.com | AddUserToGroup | PrivilegeEscalation | always |
 | iam.amazonaws.com | DetachUserPolicy | DefenseEvasion | always (target `AWSCompromisedKeyQuarantine*` ⇒ containment-defeating, 6g) |
@@ -41,7 +45,8 @@ Source: [Logging IAM and AWS STS API calls with CloudTrail](https://docs.aws.ama
 | iam.amazonaws.com | CreatePolicy | PrivilegeEscalation | always |
 | iam.amazonaws.com | CreatePolicyVersion | PrivilegeEscalation | always |
 | iam.amazonaws.com | SetDefaultPolicyVersion | PrivilegeEscalation | always |
-| iam.amazonaws.com | UpdateAssumeRolePolicy | PrivilegeEscalation | always |
+| iam.amazonaws.com | UpdateAssumeRolePolicy | PrivilegeEscalation | new trust document adds a principal the attacker controls (back-door assume) |
+| iam.amazonaws.com | UpdateAssumeRolePolicy | Impact | new trust document removes the legitimate trusted principal(s) of a role the attacker did **not** create (lockout; see 6c) |
 | iam.amazonaws.com | CreateSAMLProvider | Persistence | always |
 | iam.amazonaws.com | CreateOpenIDConnectProvider | Persistence | always |
 | iam.amazonaws.com | UploadSSHPublicKey | Persistence | always |
