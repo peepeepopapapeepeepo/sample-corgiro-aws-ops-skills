@@ -270,7 +270,7 @@ A tree: subject → hops → derived subjects, plus instance-role session review
     { "target_principal": "<iam name, not the subject>", "via_event": "PutUserPolicy", "event_id": "<uuid — the same event>", "bucket": "Impact", "deny_found": true, "current_state": "<login profile / policy / key status>", "reversal": "<guidance>" }
   ],
   "ip_ua_index": [
-    { "sourceIPAddress": "<ip>", "userAgents": ["<ua>"], "principals": ["<fingerprint or arn>"], "accounts": ["111111111111"] }
+    { "sourceIPAddress": "<ip>", "userAgents": ["<ua>"], "principals": ["<fingerprint or arn>"], "accounts": ["111111111111"], "actor_class": "attacker | other-actor" }
   ],
   "still_active": [
     { "subject": "<fingerprint>", "latest_event_time": "<iso8601>", "last_used_time": "<iso8601 | null>", "after_contained_at": true }
