@@ -24,6 +24,8 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
         "name": "<iam user or role name, or null until resolved>",
         "arn": "<principal arn, or null>"
       },
+      "role_arn": "<role-session subjects only: the validated IAM role ARN (operator-supplied `role_arn`); null for every other kind>",
+      "session_name": "<role-session subjects only: the validated `session_name` parameter; null for every other kind>",
       "resolved_via": ["<one or more of: sts:GetAccessKeyInfo, iam:GetAccessKeyLastUsed, operator-supplied, guardduty:GetFindings, health:DescribeAffectedEntities>"],
       "last_used": { "date": "<iso8601 | null | 'not-observable'>", "service": "<svc | null>", "region": "<region | null>" },
       "quarantine_policy": "AWSCompromisedKeyQuarantineV2 | AWSCompromisedKeyQuarantineV3 | none | not-observable",
@@ -36,7 +38,7 @@ One entry per subject under triage. `owning_account` must be a reachable Roster 
 }
 ```
 
-**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the targeted Step 3/4/5 fan-out; a non-`valid` subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`.
+**`key` is nullable; `key_status` gates fan-out.** `key` is `null` whenever `key_status` is `candidate-rejected` (a Health `entityValue` or finding value that did not match `re.fullmatch` body `(AKIA|ASIA)[0-9A-Z]{16}`) or `not-observable` (role-session subject, or no key available). Only a subject with `key_status: valid` may drive the key-based targeted Step 3/4/5 fan-out; a non-`valid` **access-key** subject is reported and the mode forbids its fan-out until the operator supplies a valid `access_key_id`. **One exemption (authoritative here as in MODE.md "Key validity gate"):** a subject with `kind: role-session`, non-null `role_arn` and `session_name`, and `key_status: not-observable` **is allowed to run Step 4 only**, by the role-session `Username` lookup (its `target-plan.json` lookup has `lookup_attribute: Username`, value source `subject.session_name`); it runs no Step 3 signal collection and no Step 5 expansion.
 
 **Derived subjects are appended here too.** Step 5 queues each attacker-created key as a derived subject; it writes the hop/derived tree to `sessions.json` **and** appends a matching entry to `subjects.json` (with `derived_from` set to the parent fingerprint and `discovered_at_depth` set to the hop depth), so every subject the mode traced has one `subjects.json` record. Step 4 then runs a timeline for it like any other subject.
 
@@ -67,8 +69,8 @@ The approved execution contract. Shape follows the shared plan gate in [`../../.
       "service": "cloudtrail",
       "command": "lookup-events",
       "lookup_attribute": "Username",
-      "value_source": "subject.principal.name (role-session subjects, which have no AccessKeyId fingerprint)",
-      "scope": "per-account per-region, us-east-1 first; STILL ACTIVE is decided by sessionIssuer.arn + session name, not by this attribute"
+      "value_source": "subject.session_name (role-session subjects only, which have no AccessKeyId fingerprint; never subject.principal.name, which is the role)",
+      "scope": "owning account only, per enabled region, us-east-1 first; this is the subject's PRIMARY lookup (pages tagged search: primary); events are kept client-side only when userIdentity.sessionContext.sessionIssuer.arn == subject.role_arn"
     }
   ],
   "caps": { "max_hops": 2, "max_sessions": 20, "max_derived_subjects": 10, "call_budget": 200, "global_call_budget": 2000, "max_parallel": 4 },
@@ -123,13 +125,14 @@ Nothing outside the already-approved `accounts` / `regions_by_account` is ever a
 
 ## `timeline/<subject-fingerprint>/<region>[-rn|-un]-pN.json` (Step 4)
 
-One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the search that produced the page: none for the primary `AccessKeyId` lookup, `-rn` for the supplemental `ResourceName` search, `-un` for the `Username` instance search.
+One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one manual `NextToken` loop iteration = one counted call. The infix marks the **role** of the search that produced the page, not the attribute: none for the subject's **primary** lookup (`AccessKeyId` for key subjects; `Username=<session name>` for a role-session subject, filtered client-side on `sessionIssuer.arn`), `-rn` for the supplemental `ResourceName` search, `-un` for the supplemental `Username=<instance id>` instance-session search (Step 5). `lookup_attribute` records the attribute actually sent.
 
 ```json
 {
   "subject": "<fingerprint>",
   "region": "us-east-1",
   "search": "primary | resourcename | username",
+  "lookup_attribute": "AccessKeyId | Username | ResourceName",
   "page": 1,
   "next_token_present": true,
   "events": [
@@ -147,10 +150,11 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
       "userIdentity": { "type": "IAMUser | AssumedRole | Root | ...", "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "arn": "<arn>" },
       "requestParameters": { "<sanitized subset, value-masked>": "..." },
       "responseElements": {
-        "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken and CreateAccessKey",
+        "note": "present ONLY for STS AssumeRole/GetFederationToken/GetSessionToken, CreateAccessKey, and ssm SendCommand — each with only the members shown for it",
         "credentials": { "accessKeyId": { "masked": "ASIA****XXXX", "sha256": "<64-hex>" }, "expiration": "<iso8601>" },
         "assumedRoleUser": { "arn": "<arn>" },
-        "accessKey": { "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "userName": "<name>", "status": "Active", "createDate": "<iso8601>" }
+        "accessKey": { "accessKeyId": { "masked": "AKIA****XXXX", "sha256": "<64-hex>" }, "userName": "<name>", "status": "Active", "createDate": "<iso8601>" },
+        "command": { "commandId": "<uuid — ssm.amazonaws.com/SendCommand only; the only responseElements member kept for that event>" }
       },
       "outcome": "succeeded | attempted"
     }
@@ -158,7 +162,7 @@ One file per subject per region per CloudTrail page (`-p1`, `-p2`, …), so one 
 }
 ```
 
-`responseElements` is kept only for STS and `CreateAccessKey`, and only the fields above. `accessKey.accessKeyId` is retained (masked) because Step 5 and the lifecycle `CreateAccessKey` row pair on it; the raw value of any hop/derived key is captured into the in-memory `sha256`→key map **before** masking (MODE.md Safety) and Step 5 reads it from there. The JSON keys named **`sessionToken` and `secretAccessKey` are dropped** (exact names, case-sensitive); if a field by either exact name survives into bytes about to be written, the write fails closed. Every key ID anywhere in the page is sanitized in memory (whole-value → `{masked, sha256}`; substring in a string → `AKIA****XXXX`) before the pre-write scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
+`responseElements` is kept only for STS, `CreateAccessKey`, and `ssm.amazonaws.com / SendCommand`, and only the fields above: STS events keep `credentials.accessKeyId` (masked) / `credentials.expiration` / `assumedRoleUser.arn`; `CreateAccessKey` keeps the `accessKey` object; `SendCommand` keeps **only** `command.commandId` (the identifier Step 6b's `ssm list-commands` follow-up and the Step 7 SSM handoff task need) and nothing else from its response, while its `requestParameters` are reduced to `documentName` and `instanceIds` with `parameters` dropped before the first write (MODE.md Safety). `accessKey.accessKeyId` is retained (masked) because Step 5 and the lifecycle `CreateAccessKey` row pair on it; the raw value of any hop/derived key is captured into the in-memory `sha256`→key map **before** masking (MODE.md Safety) and Step 5 reads it from there. The JSON keys named **`sessionToken` and `secretAccessKey` are dropped** (exact names, case-sensitive); if a field by either exact name survives into bytes about to be written, the write fails closed. Every key ID anywhere in the page is sanitized in memory (whole-value → `{masked, sha256}`; substring in a string → `AKIA****XXXX`) before the pre-write scan. `outcome` is derived client-side from `errorCode` presence in the parsed `CloudTrailEvent` JSON.
 
 ## `sessions.json` (Step 5)
 

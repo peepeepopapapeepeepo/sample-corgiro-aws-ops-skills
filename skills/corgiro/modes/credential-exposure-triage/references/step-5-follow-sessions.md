@@ -26,7 +26,7 @@ aws cloudtrail lookup-events \
   --lookup-attributes "$(printf '[{"AttributeKey":"Username","AttributeValue":"%s"}]' "$VALIDATED_INSTANCE_ID")" \
   --start-time <since> --end-time <until> --region <region> --no-paginate
 ```
-Tag these pages `search: "username"` (file `<region>-un-pN.json`). `Username`-attribute results are supplemental: zero results never prove no activity, and they never count toward STILL ACTIVE.
+Tag these pages `search: "username"`, `lookup_attribute: "Username"` (file `<region>-un-pN.json`). Instance-session `Username=<instance id>` results are supplemental: zero results never prove no activity, and they never count toward STILL ACTIVE. (A role-session subject's own `Username=<session name>` lookup in Step 4 is that subject's primary lookup and is tagged `primary`, not `username`.)
 
 ## Caps and gates
 - Each depth increment is one new expansion gate appended to `target-plan.json.expansions[]` with the batch of values, the field they came from, and the regex matched.
